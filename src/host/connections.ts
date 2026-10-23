@@ -1,0 +1,776 @@
+import type { Domain } from '@deepseek-ai/dsh-storage-domain'
+
+import type { ConnectorCard, ConnectionView, ToolInfo } from '../shared/types.js'
+import { ROUTE_PREFIX } from '../shared/types.js'
+import { ConnectError } from './errors.js'
+import { assertPrivateUrlsAllowed, parseMcpServers } from './mcpServers.js'
+import { openExternal } from './openExternal.js'
+import {
+  buildAuthorizeUrl,
+  createPkce,
+  createState,
+  exchangeCode,
+  fetchOAuthMetadata,
+  refreshAccessToken,
+  registerOAuthClient,
+  type OAuthClient,
+  type OAuthMetadata,
+} from './oauth.js'
+import { defineConnectorDomain, type ConnectionRecord, type CustomConnectorRecord } from './store.js'
+
+const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
+const ENTRY_PREFIX = 'dsh-connectors'
+const OAUTH_PENDING_TTL_MS = 10 * 60 * 1000
+const OAUTH_FLOW_TTL_MS = 2 * 60 * 1000
+const OAUTH_REFRESH_SKEW_MS = 60 * 1000
+
+interface OAuthPending {
+  connectorId: string
+  verifier: string
+  redirectUri: string
+  client: OAuthClient
+  metadata: OAuthMetadata
+  createdAt: number
+}
+
+interface OAuthFlow {
+  connectorId: string
+  status: 'pending' | 'done' | 'error'
+  message?: string
+  createdAt: number
+}
+
+interface LoaderFace {
+  resolve: (id: string) => { options?: { config?: Record<string, unknown> } } | undefined
+  create: (options: { id: string; name: string; config: Record<string, unknown>; disabled?: boolean }) => Promise<unknown>
+  update: (id: string, options: { config?: Record<string, unknown>; disabled?: boolean }) => Promise<unknown>
+  remove: (id: string) => Promise<unknown>
+}
+
+interface ToolsFace {
+  schemas?: () => Array<{ name?: string; description?: string }>
+}
+
+interface StorageDomainFace {
+  open: (spec: ReturnType<typeof defineConnectorDomain>) => Promise<Domain<ReturnType<typeof defineConnectorDomain>>>
+}
+
+export interface ConnectionContext {
+  loader?: LoaderFace
+  tools?: ToolsFace
+  storageDomain?: StorageDomainFace
+}
+
+function entryId(connectorId: string): string {
+  return `${ENTRY_PREFIX}-${connectorId}`
+}
+
+function headersFor(record: ConnectionRecord): Record<string, string> {
+  const headers = { ...(record.headers ?? {}) }
+  if (record.oauth !== undefined) {
+    headers.Authorization = `Bearer ${record.oauth.accessToken}`
+  } else if (record.auth !== undefined) {
+    headers[record.auth.header] = `${record.auth.prefix}${record.auth.token}`
+  }
+  return headers
+}
+
+function entryConfig(record: ConnectionRecord, failOnStartupError: boolean): Record<string, unknown> {
+  if (record.transport === 'stdio') {
+    if (record.command === undefined) throw new ConnectError('invalid_connector', 'stdio 连接缺少启动命令')
+    return {
+      transport: 'stdio',
+      serverName: record.serverName,
+      command: record.command,
+      args: record.args ?? [],
+      ...(record.env === undefined ? {} : { env: record.env }),
+      ...(record.cwd === undefined ? {} : { cwd: record.cwd }),
+      failOnStartupError,
+    }
+  }
+  if (record.url === undefined) throw new ConnectError('invalid_connector', 'HTTP 连接缺少地址')
+  return {
+    transport: 'streamable-http',
+    serverName: record.serverName,
+    url: record.url,
+    headers: headersFor(record),
+    failOnStartupError,
+  }
+}
+
+function secretValues(record: ConnectionRecord): string[] {
+  const values = [
+    ...(record.auth === undefined ? [] : [record.auth.token]),
+    ...(record.oauth === undefined
+      ? []
+      : [
+          record.oauth.accessToken,
+          ...(record.oauth.refreshToken === undefined ? [] : [record.oauth.refreshToken]),
+          ...(record.oauth.clientSecret === undefined ? [] : [record.oauth.clientSecret]),
+        ]),
+    ...Object.values(record.headers ?? {}),
+    ...Object.values(record.env ?? {}),
+  ]
+  return values.filter(value => value.length >= 4).sort((left, right) => right.length - left.length)
+}
+
+function describeError(error: unknown, record?: ConnectionRecord): string {
+  let message = error instanceof Error ? error.message : String(error)
+  if (record !== undefined) {
+    for (const secret of secretValues(record)) message = message.split(secret).join('***')
+  }
+  return message.length > 600 ? `${message.slice(0, 600)}…` : message
+}
+
+function parseRedirectUri(value: string): string {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new ConnectError('invalid_request', 'OAuth 回调地址不合法')
+  }
+  if (
+    (url.protocol !== 'http:' && url.protocol !== 'https:')
+    || url.pathname !== `${ROUTE_PREFIX}/api/oauth/callback`
+    || url.search !== ''
+    || url.hash !== ''
+  ) {
+    throw new ConnectError('invalid_request', 'OAuth 回调地址不合法')
+  }
+  const host = url.hostname
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '[::1]') {
+    throw new ConnectError('invalid_request', 'OAuth 回调地址必须是本机地址')
+  }
+  return url.toString()
+}
+
+export class ConnectionService {
+  private readonly domainPromise: Promise<Domain<ReturnType<typeof defineConnectorDomain>>>
+  private readonly oauthPending = new Map<string, OAuthPending>()
+  private readonly oauthFlows = new Map<string, OAuthFlow>()
+  private readonly oauthClients = new Map<string, OAuthClient>()
+  private disposing = false
+
+  constructor(
+    private readonly ctx: ConnectionContext,
+    private readonly catalog: () => ConnectorCard[],
+  ) {
+    if (ctx.loader === undefined) throw new Error('loader service is unavailable')
+    if (ctx.storageDomain === undefined) throw new Error('storageDomain service is unavailable')
+    this.domainPromise = ctx.storageDomain.open(defineConnectorDomain())
+  }
+
+  private async table() {
+    const domain = await this.domainPromise
+    return domain.table('connections')
+  }
+
+  private async customTable() {
+    const domain = await this.domainPromise
+    return domain.table('custom_connectors')
+  }
+
+  async dispose(): Promise<void> {
+    this.disposing = true
+    const domain = await this.domainPromise
+    await domain.close()
+  }
+
+  async list(): Promise<ConnectionView[]> {
+    const table = await this.table()
+    return [...table.entries()].map(([, record]) => this.view(record))
+  }
+
+  async listCards(): Promise<ConnectorCard[]> {
+    const customTable = await this.customTable()
+    const custom = [...customTable.entries()]
+      .sort(([, left], [, right]) => left.createdAt - right.createdAt)
+      .map(([, record]) => this.customCard(record))
+    return [...this.catalog(), ...custom]
+  }
+
+  async restore(): Promise<void> {
+    const table = await this.table()
+    for (const [, record] of table.entries()) {
+      if (!record.enabled || this.disposing) continue
+      if (this.cardFor(record.connectorId)?.authMode === 'oauth2-pkce' && record.oauth === undefined) continue
+      try {
+        const fresh = await this.ensureFreshOAuth(record)
+        if (fresh !== record) await table.put(fresh.key, fresh)
+        await this.provision(fresh, false)
+      } catch (error) {
+        await this.rememberError(record.key, describeError(error, record))
+      }
+    }
+  }
+
+  async connect(connectorId: string, token?: string): Promise<ConnectionView> {
+    const builtinCard = this.catalog().find(item => item.id === connectorId)
+    const table = await this.table()
+    const previous = table.get(connectorId)
+    const now = Date.now()
+    let record: ConnectionRecord
+
+    if (builtinCard !== undefined && builtinCard.published) {
+      if (builtinCard.authMode === 'oauth2-pkce') return this.installOAuth(builtinCard)
+      const server = builtinCard.servers[0]
+      if (server === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+      record = {
+        key: builtinCard.id,
+        connectorId: builtinCard.id,
+        name: builtinCard.name,
+        serverName: server.serverName,
+        transport: server.transport,
+        url: server.url,
+        command: server.command,
+        args: server.args,
+        auth: this.authFor(builtinCard, token),
+        enabled: true,
+        createdAt: previous?.createdAt ?? now,
+        updatedAt: now,
+      }
+    } else {
+      const custom = (await this.customTable()).get(connectorId)
+      if (custom === undefined) throw new ConnectError('not_found', '连接器不存在或未发布')
+      record = {
+        key: custom.connectorId,
+        connectorId: custom.connectorId,
+        name: custom.name,
+        serverName: custom.serverName,
+        transport: custom.transport,
+        url: custom.url,
+        command: custom.command,
+        args: custom.args,
+        env: custom.env,
+        cwd: custom.cwd,
+        headers: custom.headers,
+        enabled: true,
+        createdAt: previous?.createdAt ?? now,
+        updatedAt: now,
+      }
+    }
+
+    try {
+      await this.provision(record, true)
+      const timeoutMs = record.transport === 'stdio' ? 15_000 : 5_000
+      const tools = await this.waitForTools(record.serverName, timeoutMs)
+      if (tools.length === 0) {
+        await this.removeEntry(record.connectorId)
+        const hint = record.transport === 'stdio' ? '启动命令或环境' : '服务地址或凭据'
+        throw new ConnectError('connect_failed', `连接已提交，但 ${timeoutMs / 1000} 秒内没有发现工具，请检查${hint}`)
+      }
+    } catch (error) {
+      if (previous !== undefined) await this.rememberError(record.key, describeError(error, record))
+      if (error instanceof ConnectError) throw error
+      throw new ConnectError('connect_failed', describeError(error, record))
+    }
+
+    await table.put(record.key, record)
+    return this.view(record)
+  }
+
+  async disconnect(connectorId: string): Promise<void> {
+    const table = await this.table()
+    await this.removeEntry(connectorId)
+    await table.delete(connectorId)
+  }
+
+  async revokeOAuth(connectorId: string): Promise<ConnectionView> {
+    const table = await this.table()
+    const record = table.get(connectorId)
+    if (record === undefined) throw new ConnectError('not_found', '连接记录不存在')
+    if (record.oauth === undefined) return this.view(record)
+
+    await this.removeEntry(connectorId)
+    const { oauth: _oauth, ...rest } = record
+    const updated: ConnectionRecord = {
+      ...rest,
+      enabled: true,
+      lastError: undefined,
+      updatedAt: Date.now(),
+    }
+    await table.put(connectorId, updated)
+    return this.view(updated)
+  }
+
+  async setEnabled(connectorId: string, enabled: boolean): Promise<ConnectionView> {
+    const table = await this.table()
+    const record = table.get(connectorId)
+    if (record === undefined) throw new ConnectError('not_found', '连接记录不存在')
+    if (record.enabled === enabled) return this.view(record)
+
+    if (!enabled) {
+      await this.removeEntry(connectorId)
+      const updated: ConnectionRecord = {
+        ...record,
+        enabled: false,
+        lastError: undefined,
+        updatedAt: Date.now(),
+      }
+      await table.put(connectorId, updated)
+      return this.view(updated)
+    }
+
+    if (this.cardFor(connectorId)?.authMode === 'oauth2-pkce' && record.oauth === undefined) {
+      const updated: ConnectionRecord = {
+        ...record,
+        enabled: true,
+        lastError: undefined,
+        updatedAt: Date.now(),
+      }
+      await table.put(connectorId, updated)
+      return this.view(updated)
+    }
+
+    const updated: ConnectionRecord = {
+      ...record,
+      enabled: true,
+      lastError: undefined,
+      updatedAt: Date.now(),
+    }
+    let fresh = updated
+    try {
+      fresh = await this.ensureFreshOAuth(updated)
+      await this.provision(fresh, true)
+      const timeoutMs = fresh.transport === 'stdio' ? 15_000 : 5_000
+      const tools = await this.waitForTools(fresh.serverName, timeoutMs)
+      if (tools.length === 0) {
+        await this.removeEntry(connectorId)
+        const hint = fresh.transport === 'stdio' ? '启动命令或环境' : '服务地址或凭据'
+        throw new ConnectError('connect_failed', `启用失败：${timeoutMs / 1000} 秒内没有发现工具，请检查${hint}`)
+      }
+    } catch (error) {
+      await this.removeEntry(connectorId).catch(() => undefined)
+      const message = describeError(error, fresh)
+      await table.put(connectorId, {
+        ...fresh,
+        enabled: false,
+        lastError: message,
+        updatedAt: Date.now(),
+      })
+      if (error instanceof ConnectError) throw error
+      throw new ConnectError('connect_failed', message)
+    }
+    await table.put(connectorId, fresh)
+    return this.view(fresh)
+  }
+
+  private async installOAuth(card: ConnectorCard): Promise<ConnectionView> {
+    if (card.oauthProvider !== 'gitlab') {
+      throw new ConnectError('oauth_required', `${card.name} 需要 OAuth 授权，请使用授权流程`)
+    }
+    const server = card.servers[0]
+    if (server === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+
+    const table = await this.table()
+    const previous = table.get(card.id)
+    if (previous?.oauth !== undefined) return this.view(previous)
+
+    const now = Date.now()
+    const record: ConnectionRecord = {
+      key: card.id,
+      connectorId: card.id,
+      name: card.name,
+      serverName: server.serverName,
+      transport: server.transport,
+      url: server.url,
+      command: server.command,
+      args: server.args,
+      enabled: true,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    }
+    await this.removeEntry(card.id)
+    await table.put(record.key, record)
+    return this.view(record)
+  }
+
+  private cardFor(connectorId: string): ConnectorCard | undefined {
+    return this.catalog().find(item => item.id === connectorId)
+  }
+
+  async startOAuth(connectorId: string, redirectUri: string): Promise<{ authorizeUrl: string; flowId: string; opened: boolean }> {
+    const card = this.catalog().find(item => item.id === connectorId)
+    if (
+      card === undefined
+      || !card.published
+      || card.authMode !== 'oauth2-pkce'
+      || card.oauthProvider !== 'gitlab'
+    ) {
+      throw new ConnectError('not_found', '连接器不存在或未发布')
+    }
+    const server = card.servers[0]
+    if (server?.url === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+
+    const redirect = parseRedirectUri(redirectUri)
+    const table = await this.table()
+    const previous = table.get(connectorId)
+    if (previous === undefined) {
+      throw new ConnectError('not_installed', '请先安装连接器，再发起授权')
+    }
+    const metadata = await fetchOAuthMetadata(server.url)
+    const clientKey = `${server.url}|${redirect}`
+    const cached = this.oauthClients.get(clientKey)
+    const client = previous?.oauth !== undefined
+      && previous.oauth.provider === 'gitlab'
+      && previous.oauth.redirectUri === redirect
+      ? { clientId: previous.oauth.clientId, clientSecret: previous.oauth.clientSecret }
+      : cached ?? await registerOAuthClient(metadata, redirect, 'DSH 连接器')
+    this.oauthClients.set(clientKey, client)
+
+    const { verifier, challenge } = createPkce()
+    const state = createState()
+    const now = Date.now()
+    this.pruneOAuthPending()
+    this.pruneOAuthFlows()
+    this.oauthPending.set(state, {
+      connectorId,
+      verifier,
+      redirectUri: redirect,
+      client,
+      metadata,
+      createdAt: now,
+    })
+    this.oauthFlows.set(state, { connectorId, status: 'pending', createdAt: now })
+    const authorizeUrl = buildAuthorizeUrl(metadata, {
+      clientId: client.clientId,
+      redirectUri: redirect,
+      state,
+      challenge,
+    })
+    const opened = await openExternal(authorizeUrl)
+    return { authorizeUrl, flowId: state, opened }
+  }
+
+  async completeOAuth(state: string, code: string): Promise<ConnectionView> {
+    this.pruneOAuthPending()
+    const pending = this.oauthPending.get(state)
+    if (pending === undefined) {
+      throw new ConnectError('oauth_state_invalid', '授权状态无效或已过期，请回到连接器面板重新授权')
+    }
+    this.oauthPending.delete(state)
+    try {
+      const view = await this.finishOAuth(pending, code)
+      this.oauthFlows.set(state, {
+        connectorId: pending.connectorId,
+        status: 'done',
+        createdAt: pending.createdAt,
+      })
+      return view
+    } catch (error) {
+      this.oauthFlows.set(state, {
+        connectorId: pending.connectorId,
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error),
+        createdAt: pending.createdAt,
+      })
+      throw error
+    }
+  }
+
+  oauthFlowStatus(flowId: string): { status: 'pending' | 'done' | 'error' | 'expired'; message?: string } {
+    this.pruneOAuthFlows()
+    const flow = this.oauthFlows.get(flowId)
+    if (flow === undefined) return { status: 'expired' }
+    return {
+      status: flow.status,
+      ...(flow.message === undefined ? {} : { message: flow.message }),
+    }
+  }
+
+  failOAuthFlow(flowId: string, message: string): void {
+    this.pruneOAuthFlows()
+    const flow = this.oauthFlows.get(flowId)
+    if (flow === undefined) return
+    this.oauthPending.delete(flowId)
+    this.oauthFlows.set(flowId, { ...flow, status: 'error', message })
+  }
+
+  cancelOAuth(flowId: string): void {
+    this.pruneOAuthPending()
+    this.oauthPending.delete(flowId)
+    this.oauthFlows.delete(flowId)
+  }
+
+  private async finishOAuth(pending: OAuthPending, code: string): Promise<ConnectionView> {
+    const card = this.catalog().find(item => item.id === pending.connectorId)
+    if (card === undefined || !card.published) throw new ConnectError('not_found', '连接器已下架')
+    const server = card.servers[0]
+    if (server === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+
+    const tokens = await exchangeCode(pending.metadata.tokenEndpoint, {
+      code,
+      redirectUri: pending.redirectUri,
+      clientId: pending.client.clientId,
+      ...(pending.client.clientSecret === undefined ? {} : { clientSecret: pending.client.clientSecret }),
+      verifier: pending.verifier,
+    })
+
+    const table = await this.table()
+    const previous = table.get(card.id)
+    const now = Date.now()
+    const record: ConnectionRecord = {
+      key: card.id,
+      connectorId: card.id,
+      name: card.name,
+      serverName: server.serverName,
+      transport: server.transport,
+      url: server.url,
+      command: server.command,
+      args: server.args,
+      oauth: {
+        provider: 'gitlab',
+        clientId: pending.client.clientId,
+        ...(pending.client.clientSecret === undefined ? {} : { clientSecret: pending.client.clientSecret }),
+        redirectUri: pending.redirectUri,
+        tokenEndpoint: pending.metadata.tokenEndpoint,
+        authorizationEndpoint: pending.metadata.authorizationEndpoint,
+        accessToken: tokens.accessToken,
+        ...(tokens.refreshToken === undefined ? {} : { refreshToken: tokens.refreshToken }),
+        ...(tokens.expiresAt === undefined ? {} : { expiresAt: tokens.expiresAt }),
+        scope: tokens.scope ?? pending.metadata.scope,
+      },
+      enabled: true,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    }
+
+    try {
+      await this.provision(record, true)
+      const tools = await this.waitForTools(record.serverName, 10_000)
+      if (tools.length === 0) {
+        await this.removeEntry(record.connectorId)
+        throw new ConnectError('connect_failed', '授权成功，但 10 秒内没有发现 GitLab 工具，请稍后重试')
+      }
+    } catch (error) {
+      await this.removeEntry(record.connectorId).catch(() => undefined)
+      const message = describeError(error, record)
+      await table.put(record.key, {
+        ...record,
+        enabled: false,
+        lastError: message,
+        updatedAt: Date.now(),
+      })
+      if (error instanceof ConnectError) throw error
+      throw new ConnectError('connect_failed', message)
+    }
+
+    await table.put(record.key, record)
+    return this.view(record)
+  }
+
+  private async ensureFreshOAuth(record: ConnectionRecord): Promise<ConnectionRecord> {
+    const oauth = record.oauth
+    if (oauth === undefined || oauth.expiresAt === undefined) return record
+    if (oauth.expiresAt - Date.now() > OAUTH_REFRESH_SKEW_MS) return record
+    if (oauth.refreshToken === undefined) {
+      throw new ConnectError('oauth_expired', `${record.name} 授权已过期，请回到连接器面板重新授权`)
+    }
+    const tokens = await refreshAccessToken(oauth.tokenEndpoint, {
+      refreshToken: oauth.refreshToken,
+      clientId: oauth.clientId,
+      ...(oauth.clientSecret === undefined ? {} : { clientSecret: oauth.clientSecret }),
+    })
+    return {
+      ...record,
+      oauth: {
+        ...oauth,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken ?? oauth.refreshToken,
+        expiresAt: tokens.expiresAt ?? oauth.expiresAt,
+        scope: tokens.scope ?? oauth.scope,
+      },
+      updatedAt: Date.now(),
+    }
+  }
+
+  private pruneOAuthPending(): void {
+    const now = Date.now()
+    for (const [state, pending] of this.oauthPending) {
+      if (now - pending.createdAt > OAUTH_PENDING_TTL_MS) this.oauthPending.delete(state)
+    }
+  }
+
+  private pruneOAuthFlows(): void {
+    const now = Date.now()
+    for (const [state, flow] of this.oauthFlows) {
+      const ttl = flow.status === 'pending' ? OAUTH_PENDING_TTL_MS : OAUTH_FLOW_TTL_MS
+      if (now - flow.createdAt > ttl) this.oauthFlows.delete(state)
+    }
+  }
+
+  async importCustom(text: string, allowPrivate: boolean): Promise<ConnectorCard[]> {
+    const seeds = parseMcpServers(text)
+    assertPrivateUrlsAllowed(seeds, allowPrivate)
+
+    const customTable = await this.customTable()
+    const connections = await this.table()
+    const usedNames = new Set<string>()
+    for (const card of this.catalog()) {
+      for (const server of card.servers) usedNames.add(server.serverName)
+    }
+    for (const [, record] of customTable.entries()) usedNames.add(record.serverName)
+    for (const [, record] of connections.entries()) usedNames.add(record.serverName)
+
+    for (const seed of seeds) {
+      if (usedNames.has(seed.serverName)) {
+        throw new ConnectError('server_name_conflict', `serverName "${seed.serverName}" 已被占用，请改名后重试`)
+      }
+      usedNames.add(seed.serverName)
+    }
+
+    const now = Date.now()
+    const cards: ConnectorCard[] = []
+    for (const seed of seeds) {
+      const record: CustomConnectorRecord = {
+        key: seed.connectorId,
+        connectorId: seed.connectorId,
+        name: seed.serverName,
+        serverName: seed.serverName,
+        transport: seed.transport,
+        url: seed.url,
+        headers: seed.headers,
+        command: seed.command,
+        args: seed.args,
+        env: seed.env,
+        cwd: seed.cwd,
+        createdAt: now,
+        updatedAt: now,
+      }
+      await customTable.put(record.key, record)
+      cards.push(this.customCard(record))
+    }
+    return cards
+  }
+
+  async removeCustom(connectorId: string): Promise<void> {
+    const customTable = await this.customTable()
+    if (customTable.get(connectorId) === undefined) {
+      throw new ConnectError('not_found', '自定义连接器不存在')
+    }
+    const connections = await this.table()
+    if (connections.get(connectorId) !== undefined) {
+      await this.removeEntry(connectorId)
+      await connections.delete(connectorId)
+    }
+    await customTable.delete(connectorId)
+  }
+
+  private authFor(card: ConnectorCard, token?: string): ConnectionRecord['auth'] {
+    if (card.authMode === 'none') return undefined
+    if (card.authMode === 'oauth2-pkce') {
+      throw new ConnectError('oauth_required', `${card.name} 需要 OAuth 授权，请使用安装流程中的授权按钮`)
+    }
+    if (card.authMode === 'fields') {
+      throw new ConnectError('auth_not_supported', `${card.name} 的多字段凭据暂未接入`)
+    }
+    const value = token?.trim()
+    if (value === undefined || value === '') {
+      throw new ConnectError('missing_token', `请填写 ${card.authLabel ?? '访问令牌'}`)
+    }
+    const bearer = card.authMode === 'bearer'
+    return {
+      mode: bearer ? 'bearer' : 'api-key',
+      header: card.authHeader ?? 'Authorization',
+      prefix: card.authPrefix ?? (bearer ? 'Bearer ' : ''),
+      token: value,
+    }
+  }
+
+  private toolDetailsFor(serverName: string): ToolInfo[] {
+    const schemas = this.ctx.tools?.schemas?.() ?? []
+    const prefix = `mcp__${serverName}__`
+    return schemas
+      .filter(schema => typeof schema.name === 'string' && schema.name.startsWith(prefix))
+      .map(schema => ({
+        name: schema.name as string,
+        ...(typeof schema.description === 'string' && schema.description !== ''
+          ? { description: schema.description }
+          : {}),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+  }
+
+  private toolsFor(serverName: string): string[] {
+    return this.toolDetailsFor(serverName).map(tool => tool.name)
+  }
+
+  private async waitForTools(serverName: string, timeoutMs = 5000): Promise<string[]> {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const tools = this.toolsFor(serverName)
+      if (tools.length > 0 || Date.now() >= deadline) return tools
+      await new Promise(resolve => setTimeout(resolve, 200))
+    }
+  }
+
+  private view(record: ConnectionRecord): ConnectionView {
+    const toolDetails = record.enabled ? this.toolDetailsFor(record.serverName) : []
+    const requiresOAuth = this.cardFor(record.connectorId)?.authMode === 'oauth2-pkce'
+    return {
+      connectorId: record.connectorId,
+      name: record.name,
+      serverName: record.serverName,
+      transport: record.transport,
+      enabled: record.enabled,
+      authorized: !requiresOAuth || record.oauth !== undefined,
+      tools: toolDetails.map(tool => tool.name),
+      toolDetails,
+      error: record.lastError,
+      createdAt: record.createdAt,
+    }
+  }
+
+  private customCard(record: CustomConnectorRecord): ConnectorCard {
+    const stdio = record.transport === 'stdio'
+    return {
+      id: record.connectorId,
+      name: record.name,
+      vendor: stdio ? 'stdio' : 'Streamable HTTP',
+      category: '自定义',
+      summary: stdio
+        ? '通过 mcpServers 导入的本地 stdio MCP Server。'
+        : '通过 mcpServers 导入的 Streamable HTTP MCP Server。',
+      tags: ['自定义', record.transport],
+      published: true,
+      authMode: 'none',
+      source: 'custom',
+      servers: [{ key: 'default', serverName: record.serverName, transport: record.transport }],
+    }
+  }
+
+  private async rememberError(connectorId: string, message: string): Promise<void> {
+    const table = await this.table()
+    const current = table.get(connectorId)
+    if (current === undefined) return
+    await table.put(connectorId, { ...current, lastError: message, updatedAt: Date.now() })
+  }
+
+  private async provision(record: ConnectionRecord, failOnStartupError: boolean): Promise<void> {
+    const loader = this.ctx.loader
+    if (loader === undefined) throw new ConnectError('loader_unavailable', 'DSH loader 服务不可用')
+    const id = entryId(record.connectorId)
+    const config = entryConfig(record, failOnStartupError)
+    if (this.hasEntry(id)) {
+      await loader.update(id, { config, disabled: false })
+    } else {
+      await loader.create({ id, name: MCP_CLIENT, config, disabled: false })
+    }
+  }
+
+  private async removeEntry(connectorId: string): Promise<void> {
+    const loader = this.ctx.loader
+    if (loader === undefined) return
+    const id = entryId(connectorId)
+    if (!this.hasEntry(id)) return
+    await loader.remove(id)
+  }
+
+  private hasEntry(id: string): boolean {
+    try {
+      return this.ctx.loader?.resolve(id) !== undefined
+    } catch {
+      return false
+    }
+  }
+}
