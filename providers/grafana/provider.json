@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "grafana",
+  "name": "Grafana",
+  "vendor": "Grafana Labs",
+  "category": "安全运维",
+  "summary": "查询 Grafana 仪表盘、数据源与告警。",
+  "description": "Grafana 官方 MCP 服务，可查询仪表盘、数据源、告警与关键指标，适合日常运维与故障排查。",
+  "examples": [
+    "查当前 Grafana 实例有哪些仪表盘",
+    "看最近 1 小时的告警",
+    "查 Prometheus 数据源的健康状态",
+    "总结一个仪表盘的关键指标"
+  ],
+  "tags": ["监控", "仪表盘", "告警"],
+  "order": 81,
+  "server": {
+    "serverName": "grafana",
+    "transport": "streamable-http",
+    "url": "https://mcp.grafana.com/mcp"
+  },
+  "auth": {
+    "type": "bearer",
+    "label": "Grafana Service Account Token",
+    "help": {
+      "url": "https://grafana.com/docs/grafana/latest/administration/service-accounts/",
+      "label": "创建 Grafana 服务账号令牌",
+      "hint": "需要在对应的 Grafana 实例中创建服务账号；令牌只保存在本机。"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "microsoft-learn",
+  "name": "Microsoft Learn",
+  "vendor": "Microsoft",
+  "category": "知识检索",
+  "summary": "检索 Microsoft Learn 官方文档、教程与代码示例，无需凭据。",
+  "description": "Microsoft Learn 官方 MCP 服务，适合查询 Azure、.NET、Microsoft 365 等产品的官方文档、教程与示例代码。",
+  "examples": [
+    "在 Microsoft Learn 里查 Azure Functions 的 Node.js 部署方式",
+    "查 .NET Minimal API 的官方示例和路由写法",
+    "查 Microsoft 365 开发相关的官方文档",
+    "对比 Azure 上两种消息服务的官方说明"
+  ],
+  "tags": ["文档", "Microsoft", "学习"],
+  "order": 62,
+  "server": {
+    "serverName": "microsoft-learn",
+    "transport": "streamable-http",
+    "url": "https://learn.microsoft.com/api/mcp"
+  },
+  "auth": {
+    "type": "none"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "sentry",
+  "name": "Sentry",
+  "vendor": "Sentry",
+  "category": "安全运维",
+  "summary": "查询 Sentry 项目、Issue、事件与错误趋势。",
+  "description": "Sentry 官方 MCP 服务，可查询项目、Issue、错误事件与趋势，帮助定位线上问题。OAuth 授权会按服务支持的权限申请。",
+  "examples": [
+    "查最近 24 小时的错误趋势",
+    "列出未解决的 Issue",
+    "定位一个错误的堆栈和影响范围",
+    "总结一个项目的发布健康度"
+  ],
+  "tags": ["错误监控", "Issue", "可观测性"],
+  "order": 80,
+  "server": {
+    "serverName": "sentry",
+    "transport": "streamable-http",
+    "url": "https://mcp.sentry.dev/mcp"
+  },
+  "auth": {
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "scopes": ["org:read", "project:write", "team:write", "event:write", "alerts:write"],
+    "clientName": "DSH 连接器"
+  }
+}

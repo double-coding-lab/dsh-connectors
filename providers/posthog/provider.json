@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "posthog",
+  "name": "PostHog",
+  "vendor": "PostHog",
+  "category": "数据分析",
+  "summary": "查询 PostHog 的产品分析、事件与实验数据。",
+  "description": "PostHog 官方 MCP 服务，可查询事件、趋势、漏斗、实验与用户行为数据。",
+  "examples": [
+    "查最近 7 天的页面浏览量",
+    "列出活跃用户最多的功能",
+    "查一个实验的转化结果",
+    "总结最近的高频错误事件"
+  ],
+  "tags": ["产品分析", "事件", "实验"],
+  "order": 82,
+  "server": {
+    "serverName": "posthog",
+    "transport": "streamable-http",
+    "url": "https://mcp.posthog.com/mcp"
+  },
+  "auth": {
+    "type": "bearer",
+    "label": "PostHog Personal API Key",
+    "help": {
+      "url": "https://us.posthog.com/settings/user-api-keys",
+      "label": "创建 PostHog API Key",
+      "hint": "EU 区域请使用 eu.posthog.com 的设置页；令牌只保存在本机。"
+    }
+  }
+}

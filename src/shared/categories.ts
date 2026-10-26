@@ -1,4 +1,4 @@
-export const BUILTIN_CATEGORIES = ['开发工具', '项目管理', '数据库', '知识检索', '办公协作', '其他'] as const
+export const BUILTIN_CATEGORIES = ['开发工具', '项目管理', '数据库', '知识检索', '办公协作', '安全运维', '数据分析', '其他'] as const
 
 export const MAX_CATEGORY_LENGTH = 16
 export const MAX_EXAMPLES = 6

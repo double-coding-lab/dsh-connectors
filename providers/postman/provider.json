@@ -1,0 +1,29 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "postman",
+  "name": "Postman",
+  "vendor": "Postman",
+  "category": "开发工具",
+  "summary": "查询 Postman 工作区、集合、环境与 API。",
+  "description": "Postman 官方 MCP 服务，可查询工作区、集合、环境变量与 API 定义，适合接口调试与文档整理。",
+  "examples": [
+    "列出我的 Postman 工作区",
+    "查一个集合里有哪些请求",
+    "把当前 API 定义整理成集合",
+    "查环境变量的配置"
+  ],
+  "tags": ["API", "集合", "接口调试"],
+  "order": 71,
+  "server": {
+    "serverName": "postman",
+    "transport": "streamable-http",
+    "url": "https://mcp.postman.com/mcp"
+  },
+  "auth": {
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "clientName": "DSH 连接器"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "sourcegraph",
+  "name": "Sourcegraph",
+  "vendor": "Sourcegraph",
+  "category": "开发工具",
+  "summary": "跨仓库搜索代码、引用与定义。",
+  "description": "Sourcegraph 官方 MCP 服务，适合跨仓库代码搜索、引用分析与代码理解。",
+  "examples": [
+    "搜索组织里使用某个函数的仓库",
+    "查一个 API 在哪些仓库被调用",
+    "找某个配置项的跨仓库引用",
+    "总结一个仓库的代码结构"
+  ],
+  "tags": ["代码搜索", "仓库", "引用"],
+  "order": 72,
+  "server": {
+    "serverName": "sourcegraph",
+    "transport": "streamable-http",
+    "url": "https://sourcegraph.com/.api/mcp"
+  },
+  "auth": {
+    "type": "bearer",
+    "label": "Sourcegraph Access Token",
+    "help": {
+      "url": "https://sourcegraph.com/user/settings/tokens",
+      "label": "创建 Sourcegraph Access Token",
+      "hint": "令牌只保存在本机。"
+    }
+  }
+}

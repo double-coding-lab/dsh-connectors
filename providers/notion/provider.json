@@ -1,0 +1,29 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "notion",
+  "name": "Notion",
+  "vendor": "Notion",
+  "category": "办公协作",
+  "summary": "查询 Notion 页面、数据库与知识库。",
+  "description": "Notion 官方 MCP 服务，可搜索页面、查询数据库与整理知识库内容。",
+  "examples": [
+    "搜索知识库里关于发布流程的页面",
+    "总结一个数据库里的项目状态",
+    "查最近更新的会议纪要",
+    "把一段需求整理成 Notion 页面草稿"
+  ],
+  "tags": ["知识库", "文档", "数据库"],
+  "order": 90,
+  "server": {
+    "serverName": "notion",
+    "transport": "streamable-http",
+    "url": "https://mcp.notion.com/mcp"
+  },
+  "auth": {
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "clientName": "DSH 连接器"
+  }
+}

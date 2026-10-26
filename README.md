@@ -6,10 +6,10 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 
 已完成：
 
-- 插件骨架、侧栏面板、内置目录（GitHub / Linear / Neon / Supabase / GitLab.com / GitLab 自建 / Context7）、搜索与分类。
+- 插件骨架、侧栏面板、内置目录（18 个 provider，覆盖开发工具、项目管理、数据库、知识检索、办公协作、安全运维、数据分析）、搜索与分类。
 - Provider 数据化：新增 provider 只需 `providers/<id>/provider.json`（可选 `icon.svg`），OAuth 也由数据描述驱动，无厂商分支；契约与贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 内置连接器安装/删除、凭据本机存储、重启后恢复、工具数量展示。
-- 内置 token 型 provider：Linear（API Key，项目管理）、Neon / Supabase（API Key / PAT，数据库）；安装只写记录，随后在授权表单输入 token；关闭表单后卡片保留「授权」+ 已安装对勾。令牌输入框默认隐藏内容，右侧眼睛按钮可切换明文/密文，切换不改变已输入内容。
+- 内置 token 型 provider：Linear、Neon / Supabase、Hugging Face、PostHog、Grafana、Sourcegraph；安装只写记录，随后在授权表单输入 token；关闭表单后卡片保留「授权」+ 已安装对勾。令牌输入框默认隐藏内容，右侧眼睛按钮可切换明文/密文，切换不改变已输入内容。
 - 已授权后可直接更新凭据，不必删除重装：token 卡片在「更多」菜单或详情底部提供「更新令牌」，卡片入口弹出独立的更新弹窗，详情入口在其上叠加二级弹窗；空白输入、旧令牌不回显，保存后原地替换。OAuth 卡片提供「重新授权」，点击后卡片状态立即从对勾切换为 loading，取消或失败保留旧授权。二级弹窗出现时一级弹窗的蒙版让位给二级，只保留最上层一层遮罩，避免背景越叠越暗。
 - 自定义 `mcpServers` JSON 导入：Streamable HTTP（`url` / `headers`）与 stdio（`command` / `args` / `env` / `cwd`）。
 - 自定义连接器与内置目录混排，标「自定义」，支持删除。
@@ -60,7 +60,7 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 - 侧栏图标：连接器入口改为插头 SVG（3 条 path：两脚、插头体、线缆），与「插件」pinwheel 区分。
 - GitHub PAT：卡片目录为 `auth.type=bearer`；加号/详情安装只写记录并弹出 token 授权表单；空 token 时「连接」禁用。填入假 token 后连接超时并显示凭据错误，未落记录；真实 PAT 已连接并注册 46 个工具。已连接失败时的「重新连接」+ 空白 token 输入为同一套 `tokenEntry` 分支。
 - 安装/授权分离（token）：Linear 详情「安装」后卡片变为「未授权」+「授权」+已安装对勾，弹窗显示 `Linear API Key` 表单；关闭并刷新后仍是「授权/未授权」，不再显示「安装」。Neon 加号同样直接安装并弹出授权表单；测试记录已删除。
-- 目录：7 张内置卡（GitHub / Linear / Neon / Supabase / GitLab.com / GitLab 自建 / Context7），分类新增「项目管理」「数据库」；Linear 安装步骤显示 `Linear API Key`、创建链接与权限提示，Neon / Supabase 复用同一结构。provider 改为按目录组织，OAuth 走通用元数据 + DCR/静态 clientId。
+- 目录：18 张内置卡，覆盖开发工具 / 项目管理 / 数据库 / 知识检索 / 办公协作 / 安全运维 / 数据分析；Linear 安装步骤显示 `Linear API Key`、创建链接与权限提示，Neon / Supabase 复用同一结构。provider 改为按目录组织，OAuth 走通用元数据 + DCR/静态 clientId。
 - GitLab.com OAuth：真实授权已完成，GitLab MCP 注册 36 个工具；`POST /api/oauth/start` 完成元数据发现、动态客户端注册并通过系统默认浏览器打开（`opened=true`）；取消授权后流程回到未授权。回调非法 state、provider 错误、非法 redirectUri 均返回 400 与错误页。
 
 ## 结构

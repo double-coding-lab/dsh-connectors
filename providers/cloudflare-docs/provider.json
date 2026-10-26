@@ -1,0 +1,26 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "cloudflare-docs",
+  "name": "Cloudflare Docs",
+  "vendor": "Cloudflare",
+  "category": "开发工具",
+  "summary": "检索 Cloudflare 官方文档，无需凭据。",
+  "description": "Cloudflare 官方文档 MCP 服务，适合查询 Workers、Pages、D1、R2、Access 等产品的配置与示例。",
+  "examples": [
+    "查 Cloudflare Workers 的 KV 绑定用法",
+    "查 D1 数据库的迁移命令",
+    "查 R2 的 S3 兼容接口怎么配置",
+    "查 Cloudflare Access 的应用接入方式"
+  ],
+  "tags": ["文档", "Cloudflare", "边缘计算"],
+  "order": 70,
+  "server": {
+    "serverName": "cloudflare-docs",
+    "transport": "streamable-http",
+    "url": "https://docs.mcp.cloudflare.com/mcp"
+  },
+  "auth": {
+    "type": "none"
+  }
+}

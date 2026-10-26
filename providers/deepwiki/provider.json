@@ -1,0 +1,26 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "deepwiki",
+  "name": "DeepWiki",
+  "vendor": "Cognition",
+  "category": "知识检索",
+  "summary": "查询 GitHub 仓库的结构、文档与代码说明，无需凭据。",
+  "description": "DeepWiki 为公开 GitHub 仓库生成结构化文档与问答，适合快速理解仓库结构、模块划分与核心流程。",
+  "examples": [
+    "用 DeepWiki 查一下 facebook/react 的仓库结构",
+    "总结 owner/repo 的模块划分和主要入口",
+    "解释 owner/repo 的核心数据流",
+    "查一下 owner/repo 的测试与构建方式"
+  ],
+  "tags": ["代码文档", "仓库结构"],
+  "order": 63,
+  "server": {
+    "serverName": "deepwiki",
+    "transport": "streamable-http",
+    "url": "https://mcp.deepwiki.com/mcp"
+  },
+  "auth": {
+    "type": "none"
+  }
+}
