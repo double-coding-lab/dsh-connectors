@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "cards": [
     {
       "id": "github",
@@ -31,6 +31,102 @@
           "serverName": "github",
           "transport": "streamable-http",
           "url": "https://api.githubcopilot.com/mcp/"
+        }
+      ]
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "vendor": "Linear",
+      "icon": "linear",
+      "category": "项目管理",
+      "summary": "检索和更新 Linear 的 issue、项目与评论，使用 API Key 接入。",
+      "description": "Linear 官方 MCP 服务，支持 issue、project、cycle、comment 等工具。安装时粘贴 Linear API Key，令牌只保存在本机。",
+      "examples": [
+        "列出我最近负责的 Linear issue，按优先级排序",
+        "在 ENG 团队创建一个 bug issue，说明复现步骤",
+        "查看 ENG 当前 cycle 的进展和阻塞项",
+        "给 issue ENG-123 添加一条评论，说明修复情况"
+      ],
+      "tags": ["项目管理", "Issue", "Cycle"],
+      "published": true,
+      "authMode": "bearer",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "authLabel": "Linear API Key",
+      "authHelpUrl": "https://linear.app/settings/personal/security",
+      "authHelpLabel": "创建 Linear API Key",
+      "authHelpHint": "在 Settings → Personal → Security & Access 创建 Personal API key；令牌只保存在本机。",
+      "servers": [
+        {
+          "key": "default",
+          "serverName": "linear",
+          "transport": "streamable-http",
+          "url": "https://mcp.linear.app/mcp"
+        }
+      ]
+    },
+    {
+      "id": "neon",
+      "name": "Neon",
+      "vendor": "Neon",
+      "icon": "neon",
+      "category": "数据库",
+      "summary": "管理 Neon 项目、分支和 SQL，使用 API Key 接入。",
+      "description": "Neon 官方 MCP 服务，支持项目/分支管理、SQL 查询、schema 与监控等工具。安装时粘贴 Neon API Key，令牌只保存在本机。",
+      "examples": [
+        "列出我的 Neon 项目，并说明每个项目的区域和数据库",
+        "在项目 my-project 创建一个新分支用于测试",
+        "查询 my-project 的 users 表结构和最近 10 条记录",
+        "检查 my-project 最近的慢查询和连接数"
+      ],
+      "tags": ["Postgres", "数据库", "SQL"],
+      "published": true,
+      "authMode": "bearer",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "authLabel": "Neon API Key",
+      "authHelpUrl": "https://console.neon.tech/app/settings/api-keys",
+      "authHelpLabel": "创建 Neon API Key",
+      "authHelpHint": "在 Neon Console → Account settings → API keys 创建；令牌只保存在本机。",
+      "servers": [
+        {
+          "key": "default",
+          "serverName": "neon",
+          "transport": "streamable-http",
+          "url": "https://mcp.neon.tech/mcp"
+        }
+      ]
+    },
+    {
+      "id": "supabase",
+      "name": "Supabase",
+      "vendor": "Supabase",
+      "icon": "supabase",
+      "category": "数据库",
+      "summary": "查询 Supabase 数据库、Edge Functions 与项目配置，使用 PAT 接入。",
+      "description": "Supabase 官方 MCP 服务，支持 SQL 查询、表结构、Edge Functions 与项目管理等工具。安装时粘贴 Supabase PAT，令牌只保存在本机。",
+      "examples": [
+        "列出我的 Supabase 项目，并说明每个项目的区域",
+        "查询项目 my-project 的 users 表结构和最近 20 条记录",
+        "查看项目 my-project 最近的 Edge Function 日志",
+        "为项目 my-project 创建一个新的数据库表"
+      ],
+      "tags": ["Postgres", "数据库", "Edge Functions"],
+      "published": true,
+      "authMode": "bearer",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "authLabel": "Supabase PAT",
+      "authHelpUrl": "https://supabase.com/dashboard/account/tokens",
+      "authHelpLabel": "创建 Supabase PAT",
+      "authHelpHint": "在 Supabase Dashboard → Account → Access Tokens 创建；令牌只保存在本机。",
+      "servers": [
+        {
+          "key": "default",
+          "serverName": "supabase",
+          "transport": "streamable-http",
+          "url": "https://mcp.supabase.com/mcp"
         }
       ]
     },

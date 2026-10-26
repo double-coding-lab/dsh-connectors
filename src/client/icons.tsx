@@ -57,6 +57,36 @@ export function BrandContext7({ size = 22, className }: IconProps): JSX.Element 
   return <img width={size} height={size} className={className} src={CONTEXT7_ICON} alt="" />
 }
 
+export function BrandLinear({ size = 22, className }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="#5E6AD2"
+        d="M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z"
+      />
+    </svg>
+  )
+}
+
+export function BrandNeon({ size = 22, className }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 24 24" aria-hidden>
+      <path fill="#34D59A" d="M24 0V24l-9.365-8.045V24H0V0ZM2.942 21.087h8.751V9.563l9.365 8.204V2.919L2.942 2.914Z" />
+    </svg>
+  )
+}
+
+export function BrandSupabase({ size = 22, className }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="#3FCF8E"
+        d="M11.9 1.036c-.015-.986-1.26-1.41-1.874-.637L.764 12.05C-.33 13.427.65 15.455 2.409 15.455h9.579l.113 7.51c.014.985 1.259 1.408 1.873.636l9.262-11.653c1.093-1.375.113-3.403-1.645-3.403h-9.642z"
+      />
+    </svg>
+  )
+}
+
 export function IconLink({ size = 16, className }: IconProps): JSX.Element {
   return (
     <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -165,6 +195,37 @@ export function IconSearch({ size = 16, className }: IconProps): JSX.Element {
         d="M11.894845 6.647401C11.894845 3.725463 9.534486 1.356779 6.623219 1.35657C3.711786 1.35657 1.351635 3.725338 1.351635 6.647401C1.351843 9.569296 3.711911 11.938273 6.623219 11.938273C9.534361 11.938064 11.894637 9.569171 11.894845 6.647401ZM13.245462 6.647401C13.245254 10.317935 10.280401 13.293613 6.623219 13.293821C2.965871 13.293821 0.000204 10.31806 0 6.647401C0 2.976574 2.965746 0 6.623219 0C10.280526 0.000205 13.245462 2.9767 13.245462 6.647401Z"
       />
       <path fill="currentColor" d="M16.000417 15.041079L15.044449 16.000433L11.530434 12.473588L12.486298 11.514234L16.000417 15.041079Z" />
+    </svg>
+  )
+}
+
+export function IconEye({ size = 16, className }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8Z"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1" />
+    </svg>
+  )
+}
+
+export function IconEyeOff({ size = 16, className }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8Z"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1" />
+      <path d="M2.5 2.5L13.5 13.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
     </svg>
   )
 }

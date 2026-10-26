@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 
 import type { CatalogPayload, ConnectionView, ConnectorCard, ConnectionsPayload, CustomConnectorsPayload, OAuthStartPayload, OAuthStatusPayload, ToolInfo } from '../shared/types.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
-import { BrandContext7, BrandGithub, BrandGitlab, IconAlert, IconCheck, IconChevronDown, IconClose, IconCode, IconCopy, IconGlobe, IconLink, IconMore, IconPlay, IconPlug, IconPlus, IconSearch, IconTrash } from './icons.js'
+import { BrandContext7, BrandGithub, BrandGitlab, BrandLinear, BrandNeon, BrandSupabase, IconAlert, IconCheck, IconChevronDown, IconClose, IconCode, IconCopy, IconEye, IconEyeOff, IconGlobe, IconLink, IconMore, IconPlay, IconPlug, IconPlus, IconRefresh, IconSearch, IconTrash } from './icons.js'
 
 export const inject: string[] = []
 
@@ -118,6 +118,13 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return body
 }
 
+const MIN_INSTALL_FEEDBACK_MS = 500
+
+function withInstallFeedback<T>(task: Promise<T>): Promise<T> {
+  return Promise.all([task, new Promise<void>(resolve => { setTimeout(resolve, MIN_INSTALL_FEEDBACK_MS) })])
+    .then(([value]) => value)
+}
+
 async function writeClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText !== undefined) {
     try {
@@ -182,6 +189,10 @@ const OAUTH_POLL_MS = 1200
 
 function isOAuthCard(card: ConnectorCard): boolean {
   return card.authMode === 'oauth2-pkce' && card.oauthProvider === 'gitlab'
+}
+
+function isTokenCard(card: ConnectorCard): boolean {
+  return card.authMode === 'bearer' || card.authMode === 'api-key'
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -281,8 +292,6 @@ interface DockSnapshot {
   error: string | null
   query: string
   pendingId: string | null
-  tokenFor: string | null
-  token: string
 }
 
 const initialDockSnapshot: DockSnapshot = {
@@ -294,16 +303,12 @@ const initialDockSnapshot: DockSnapshot = {
   error: null,
   query: '',
   pendingId: null,
-  tokenFor: null,
-  token: '',
 }
 
 let dockSnapshot = initialDockSnapshot
 const dockListeners = new Set<() => void>()
 let dockRequest: Promise<void> | null = null
 let dockDirty = false
-let dockOAuthAbort: AbortController | null = null
-let dockOAuthFlowId: string | null = null
 
 function updateDock(patch: Partial<DockSnapshot>): void {
   dockSnapshot = { ...dockSnapshot, ...patch }
@@ -360,7 +365,7 @@ function notifyConnectionsChanged(): void {
 
 function closeDock(): void {
   if (!dockSnapshot.open) return
-  updateDock({ open: false, query: '', tokenFor: null, token: '', error: null })
+  updateDock({ open: false, query: '', error: null })
 }
 
 function toggleDock(): void {
@@ -396,75 +401,16 @@ function openConnectorPanel(): void {
 }
 
 async function toggleDockConnection(card: ConnectorCard, enabled: boolean): Promise<void> {
-  updateDock({ pendingId: card.id, error: null })
+  updateDock({ pendingId: card.id })
   try {
     await request(`${ROUTE_PREFIX}/api/connections/${encodeURIComponent(card.id)}`, {
       method: 'PATCH',
       body: JSON.stringify({ enabled }),
     })
-    await refreshDock()
-  } catch (cause) {
-    updateDock({ error: cause instanceof Error ? cause.message : String(cause) })
+  } catch {
+    // 失败原因写入连接记录，refreshDock 后由行内状态展示
   } finally {
-    updateDock({ pendingId: null })
-  }
-}
-
-function cancelDockOAuth(): void {
-  const flowId = dockOAuthFlowId
-  dockOAuthAbort?.abort()
-  if (flowId !== null) {
-    void request(`${ROUTE_PREFIX}/api/oauth/cancel`, {
-      method: 'POST',
-      body: JSON.stringify({ flowId }),
-    }).catch(() => undefined)
-  }
-}
-
-async function connectDock(card: ConnectorCard, token?: string): Promise<void> {
-  updateDock({ pendingId: card.id, error: null })
-  try {
-    if (isOAuthCard(card)) {
-      const controller = new AbortController()
-      dockOAuthAbort = controller
-      try {
-        let connection = dockSnapshot.connections[card.id]
-        if (connection === undefined) {
-          const response = await request<ConnectResponse>(`${ROUTE_PREFIX}/api/connections`, {
-            method: 'POST',
-            body: JSON.stringify({ connectorId: card.id }),
-          })
-          connection = response.value?.connection
-          if (connection === undefined) throw new ApiError('invalid_response', '安装失败：宿主没有返回连接')
-          updateDock({ connections: { ...dockSnapshot.connections, [card.id]: connection } })
-        }
-        if (!connection.authorized) {
-          await authorizeConnector(card, {
-            signal: controller.signal,
-            onFlow: flow => {
-              dockOAuthFlowId = flow.flowId
-            },
-          })
-        }
-      } finally {
-        dockOAuthAbort = null
-        dockOAuthFlowId = null
-      }
-    } else {
-      await request(`${ROUTE_PREFIX}/api/connections`, {
-        method: 'POST',
-        body: JSON.stringify(token === undefined ? { connectorId: card.id } : { connectorId: card.id, token }),
-      })
-    }
-    updateDock({ tokenFor: null, token: '' })
     await refreshDock()
-  } catch (cause) {
-    if (cause instanceof ApiError && cause.code === 'oauth_cancelled') {
-      void refreshDock()
-    } else {
-      updateDock({ error: cause instanceof Error ? cause.message : String(cause) })
-    }
-  } finally {
     updateDock({ pendingId: null })
   }
 }
@@ -507,7 +453,7 @@ function ConnectorDock(): JSX.Element | null {
         const failed = state.connections[card.id]?.error !== undefined
         return (
           <span key={card.id} className="dshc-dock-icon" style={{ zIndex: shown.length - index }}>
-            <ConnectorLogo card={card} size={18} />
+            <ConnectorLogo card={card} size={24} />
             {failed && <span className="dshc-dock-dot" />}
           </span>
         )
@@ -573,7 +519,6 @@ function ConnectorPopover(): JSX.Element | null {
                 const connection = state.connections[card.id]
                 const pending = state.pendingId === card.id
                 const oauth = isOAuthCard(card)
-                const needsToken = card.authMode === 'api-key' || card.authMode === 'bearer'
                 const unsupported = (card.authMode === 'oauth2-pkce' && !oauth) || card.authMode === 'fields'
                 return (
                   <div className="dshc-dock-item" key={card.id}>
@@ -582,79 +527,35 @@ function ConnectorPopover(): JSX.Element | null {
                       <span className="dshc-dock-row-main">
                         <span className="dshc-dock-row-name">{card.name}</span>
                         {connection?.error !== undefined
-                          ? <span className="dshc-dock-row-error">连接失败</span>
+                          ? <span className="dshc-dock-row-error" title={connection.error}>连接失败</span>
                           : connection !== undefined && !connection.authorized
                             ? <span className="dshc-dock-row-state">未授权</span>
                             : null}
                       </span>
-                      {connection !== undefined && (connection.authorized || !oauth)
-                        ? (
-                            <button
-                              type="button"
-                              role="switch"
-                              className="dshc-switch"
-                              aria-checked={connection.enabled}
-                              aria-label={connection.enabled ? `停用 ${card.name}` : `启用 ${card.name}`}
-                              title={connection.enabled ? '停用' : '启用'}
-                              disabled={pending}
-                              onClick={() => { void toggleDockConnection(card, !connection.enabled) }}
-                            />
-                          )
-                        : oauth
+                      {unsupported && connection === undefined
+                        ? <span className="dshc-dock-row-hint">未接入</span>
+                        : connection !== undefined && connection.authorized
                           ? (
-                              <button
-                                type="button"
-                                className="dshc-dock-connect"
-                                onClick={() => {
-                                  if (pending) cancelDockOAuth()
-                                  else void connectDock(card)
-                                }}
-                              >
-                                {pending ? '取消' : connection === undefined ? '安装' : '授权'}
-                              </button>
+                              pending
+                                ? <span className="dshc-dock-toggle" role="status" aria-label="处理中">
+                                    <span className="dshc-spinner dshc-spinner-inline" aria-hidden />
+                                  </span>
+                                : <button
+                                    type="button"
+                                    role="switch"
+                                    className="dshc-switch"
+                                    aria-checked={connection.enabled}
+                                    aria-label={connection.enabled ? `停用 ${card.name}` : `启用 ${card.name}`}
+                                    title={connection.enabled ? '停用' : '启用'}
+                                    onClick={() => { void toggleDockConnection(card, !connection.enabled) }}
+                                  />
                             )
-                          : unsupported
-                            ? <span className="dshc-dock-row-hint">未接入</span>
-                            : (
-                                <button
-                                  type="button"
-                                  className="dshc-dock-connect"
-                                  disabled={pending}
-                                  onClick={() => {
-                                    if (needsToken) updateDock({ tokenFor: card.id, token: '' })
-                                    else void connectDock(card)
-                                  }}
-                                >
-                                  {pending ? '连接中…' : '连接'}
-                                </button>
-                              )}
+                          : (
+                              <button type="button" className="dshc-dock-connect" onClick={openConnectorPanel}>
+                                {connection === undefined ? '去连接' : '去授权'}
+                              </button>
+                            )}
                     </div>
-                    {state.tokenFor === card.id && (
-                      <div className="dshc-dock-token">
-                        <input
-                          type="password"
-                          autoFocus
-                          autoComplete="off"
-                          placeholder={card.authLabel ?? '粘贴令牌'}
-                          value={state.token}
-                          onChange={event => updateDock({ token: event.target.value })}
-                          onKeyDown={event => {
-                            if (event.key === 'Enter' && !pending && state.token.trim() !== '') {
-                              event.preventDefault()
-                              void connectDock(card, state.token)
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="dshc-dock-connect"
-                          disabled={pending || state.token.trim() === ''}
-                          onClick={() => { void connectDock(card, state.token) }}
-                        >
-                          {pending ? '连接中…' : '连接'}
-                        </button>
-                      </div>
-                    )}
                   </div>
                 )
               })}
@@ -677,10 +578,15 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
   const [loading, setLoading] = useState(false)
   const [dialogCard, setDialogCard] = useState<ConnectorCard | null>(null)
   const [dialogInstall, setDialogInstall] = useState(false)
+  const [credentialCard, setCredentialCard] = useState<ConnectorCard | null>(null)
+  const [credentialSaving, setCredentialSaving] = useState(false)
+  const [credentialError, setCredentialError] = useState<string | null>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
   const [togglePending, setTogglePending] = useState<string | null>(null)
+  const [cardErrors, setCardErrors] = useState<Record<string, string>>({})
   const [oauthFlow, setOAuthFlow] = useState<(OAuthFlowInfo & { connectorId: string }) | null>(null)
+  const [oauthStarting, setOauthStarting] = useState<string | null>(null)
   const oauthAbortRef = useRef<AbortController | null>(null)
   const [customOpen, setCustomOpen] = useState(false)
   const [deleteCard, setDeleteCard] = useState<ConnectorCard | null>(null)
@@ -749,21 +655,61 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
     setDialogCard(card)
   }
 
+  const openCredentialDialog = (card: ConnectorCard): void => {
+    setCredentialError(null)
+    setCredentialCard(card)
+  }
+
+  const saveCredential = (card: ConnectorCard, token: string): void => {
+    setCredentialSaving(true)
+    setCredentialError(null)
+    void (async () => {
+      try {
+        const response = await withInstallFeedback(request<ConnectResponse>(`${ROUTE_PREFIX}/api/connections`, {
+          method: 'POST',
+          body: JSON.stringify({ connectorId: card.id, token }),
+        }))
+        const connection = response.value?.connection
+        if (connection === undefined) throw new ApiError('invalid_response', '保存失败：宿主没有返回连接')
+        applyConnection(connection)
+        setCredentialCard(null)
+      } catch (cause) {
+        setCredentialError(cause instanceof Error ? cause.message : String(cause))
+      } finally {
+        setCredentialSaving(false)
+      }
+    })()
+  }
+
+  const clearCardError = (connectorId: string): void => {
+    setCardErrors(previous => {
+      if (previous[connectorId] === undefined) return previous
+      const next = { ...previous }
+      delete next[connectorId]
+      return next
+    })
+  }
+
+  const setCardError = (connectorId: string, message: string): void => {
+    setCardErrors(previous => ({ ...previous, [connectorId]: message }))
+  }
+
   const applyConnection = (connection: ConnectionView): void => {
     setConnections(previous => ({ ...previous, [connection.connectorId]: connection }))
+    clearCardError(connection.connectorId)
     notifyConnectionsChanged()
   }
 
-  const connect = (card: ConnectorCard, token?: string, surface: 'dialog' | 'page' = 'dialog'): void => {
+  const connect = (card: ConnectorCard, token?: string, surface: 'dialog' | 'page' = 'dialog'): Promise<boolean> => {
     setPending(card.id)
     if (surface === 'dialog') setDialogError(null)
-    else setError(null)
-    void (async () => {
+    else clearCardError(card.id)
+    return (async () => {
       try {
-        const response = await request<ConnectResponse>(`${ROUTE_PREFIX}/api/connections`, {
+        const response = await withInstallFeedback(request<ConnectResponse>(`${ROUTE_PREFIX}/api/connections`, {
           method: 'POST',
           body: JSON.stringify(token === undefined ? { connectorId: card.id } : { connectorId: card.id, token }),
-        })
+        }))
         const connection = response.value?.connection
         if (connection !== undefined) {
           applyConnection(connection)
@@ -771,10 +717,12 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
           setDialogInstall(false)
         }
         setDialogError(null)
+        return true
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause)
         if (surface === 'dialog') setDialogError(message)
-        else setError(message)
+        else setCardError(card.id, message)
+        return false
       } finally {
         setPending(null)
       }
@@ -782,21 +730,43 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
   }
 
   const installConnector = async (card: ConnectorCard): Promise<ConnectionView> => {
-    const response = await request<ConnectResponse>(`${ROUTE_PREFIX}/api/connections`, {
+    const response = await withInstallFeedback(request<ConnectResponse>(`${ROUTE_PREFIX}/api/connections`, {
       method: 'POST',
       body: JSON.stringify({ connectorId: card.id }),
-    })
+    }))
     const connection = response.value?.connection
     if (connection === undefined) throw new ApiError('invalid_response', '安装失败：宿主没有返回连接')
     return connection
   }
 
-  const runOAuth = (card: ConnectorCard, installFirst: boolean, surface: 'dialog' | 'page' = 'dialog'): void => {
-    const controller = new AbortController()
-    oauthAbortRef.current = controller
+  const installToken = (card: ConnectorCard, surface: 'dialog' | 'page'): void => {
     setPending(card.id)
     if (surface === 'dialog') setDialogError(null)
-    else setError(null)
+    else clearCardError(card.id)
+    void (async () => {
+      try {
+        const connection = await installConnector(card)
+        applyConnection(connection)
+        setDialogCard(card)
+        setDialogInstall(false)
+        if (surface === 'dialog') setDialogError(null)
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause)
+        if (surface === 'dialog') setDialogError(message)
+        else setCardError(card.id, message)
+      } finally {
+        setPending(null)
+      }
+    })()
+  }
+
+  const runOAuth = (card: ConnectorCard, installFirst: boolean, surface: 'dialog' | 'page' = 'dialog', force = false): void => {
+    const controller = new AbortController()
+    oauthAbortRef.current = controller
+    setOauthStarting(card.id)
+    setPending(card.id)
+    if (surface === 'dialog') setDialogError(null)
+    else clearCardError(card.id)
     void (async () => {
       try {
         let connection = connections[card.id]
@@ -805,7 +775,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
           applyConnection(connection)
           setDialogInstall(false)
         }
-        if (!connection.authorized) {
+        if (force || !connection.authorized) {
           const authorized = await authorizeConnector(card, {
             signal: controller.signal,
             onFlow: flow => {
@@ -822,11 +792,12 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
         if (!(cause instanceof ApiError && cause.code === 'oauth_cancelled')) {
           const message = cause instanceof Error ? cause.message : String(cause)
           if (surface === 'dialog') setDialogError(message)
-          else setError(message)
+          else setCardError(card.id, message)
         }
         refreshConnections()
       } finally {
         setPending(null)
+        setOauthStarting(null)
         setOAuthFlow(null)
         oauthAbortRef.current = null
       }
@@ -848,7 +819,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
   const revoke = (card: ConnectorCard, surface: 'dialog' | 'page' = 'dialog'): void => {
     setPending(card.id)
     if (surface === 'dialog') setDialogError(null)
-    else setError(null)
+    else clearCardError(card.id)
     void (async () => {
       try {
         const response = await request<ConnectResponse>(
@@ -861,7 +832,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause)
         if (surface === 'dialog') setDialogError(message)
-        else setError(message)
+        else setCardError(card.id, message)
       } finally {
         setPending(null)
       }
@@ -870,7 +841,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
 
   const disconnect = (card: ConnectorCard): void => {
     setPending(card.id)
-    setError(null)
+    clearCardError(card.id)
     void (async () => {
       try {
         await request(`${ROUTE_PREFIX}/api/connections/${encodeURIComponent(card.id)}`, { method: 'DELETE' })
@@ -881,7 +852,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
         })
         notifyConnectionsChanged()
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setCardError(card.id, cause instanceof Error ? cause.message : String(cause))
       } finally {
         setPending(null)
       }
@@ -922,7 +893,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
 
   const toggleConnection = (card: ConnectorCard, enabled: boolean): void => {
     setTogglePending(card.id)
-    setError(null)
+    clearCardError(card.id)
     void (async () => {
       try {
         const response = await request<ConnectResponse>(
@@ -931,11 +902,10 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
         )
         const connection = response.value?.connection
         if (connection !== undefined) {
-          setConnections(previous => ({ ...previous, [connection.connectorId]: connection }))
-          notifyConnectionsChanged()
+          applyConnection(connection)
         }
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setCardError(card.id, cause instanceof Error ? cause.message : String(cause))
         refreshConnections()
       } finally {
         setTogglePending(null)
@@ -944,11 +914,11 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
   }
 
   const startTrialFor = (card: ConnectorCard): void => {
-    setError(null)
+    clearCardError(card.id)
     try {
       startTrial(promptForNextExample(card))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setCardError(card.id, cause instanceof Error ? cause.message : String(cause))
     }
   }
 
@@ -963,7 +933,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
 
   const isAuthorizing = (card: ConnectorCard): boolean =>
     pending === card.id
-    && (oauthFlow?.connectorId === card.id
+    && (oauthStarting === card.id
+      || oauthFlow?.connectorId === card.id
       || (isOAuthCard(card) && connections[card.id]?.authorized === false))
 
   return (
@@ -1010,6 +981,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                   key={card.id}
                   card={card}
                   connection={connections[card.id]}
+                  errorMessage={cardErrors[card.id]}
                   togglePending={togglePending === card.id}
                   authorizing={isAuthorizing(card)}
                   installing={pending === card.id}
@@ -1019,14 +991,27 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                       runOAuth(card, true, 'page')
                       return
                     }
+                    if (isTokenCard(card)) {
+                      installToken(card, 'page')
+                      return
+                    }
                     if (card.authMode === 'none') {
                       connect(card, undefined, 'page')
                       return
                     }
                     openDialog(card, true)
                   }}
-                  onAuthorize={() => runOAuth(card, false, 'page')}
+                  onAuthorize={() => {
+                    if (isOAuthCard(card)) runOAuth(card, false, 'page')
+                    else openDialog(card, false)
+                  }}
                   onCancelAuthorize={cancelAuthorize}
+                  onUpdateCredential={isTokenCard(card) && connections[card.id]?.authorized === true
+                    ? () => openCredentialDialog(card)
+                    : undefined}
+                  onReauthorize={isOAuthCard(card) && connections[card.id]?.authorized === true
+                    ? () => runOAuth(card, false, 'page', true)
+                    : undefined}
                   onRevoke={card.authMode === 'oauth2-pkce'
                     ? () => revoke(card, 'page')
                     : undefined}
@@ -1055,6 +1040,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
           authorizeLink={oauthFlow?.connectorId === dialogCard.id && !oauthFlow.opened ? oauthFlow.authorizeUrl : null}
           installOpen={dialogInstall}
           error={dialogError}
+          behind={credentialCard !== null || deleteCard !== null}
+          escLocked={credentialCard !== null || deleteCard !== null}
           onClose={() => {
             if (pending === null) {
               setDialogCard(null)
@@ -1063,6 +1050,10 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
             }
           }}
           onBeginInstall={() => {
+            if (isTokenCard(dialogCard)) {
+              installToken(dialogCard, 'dialog')
+              return
+            }
             setDialogError(null)
             setDialogInstall(true)
           }}
@@ -1073,6 +1064,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
           onConnect={token => connect(dialogCard, token)}
           onInstallOAuth={() => runOAuth(dialogCard, true)}
           onAuthorize={() => runOAuth(dialogCard, false)}
+          onReauthorize={() => runOAuth(dialogCard, false, 'dialog', true)}
+          onUpdateCredential={() => openCredentialDialog(dialogCard)}
           onCancelAuthorize={cancelAuthorize}
           onTryExample={example => tryExample(dialogCard, example)}
           onRevoke={() => revoke(dialogCard)}
@@ -1084,6 +1077,21 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                 setDeleteCard(dialogCard)
               }
             : undefined}
+        />
+      )}
+
+      {credentialCard !== null && (
+        <CredentialDialog
+          card={credentialCard}
+          saving={credentialSaving}
+          error={credentialError}
+          onClose={() => {
+            if (!credentialSaving) {
+              setCredentialCard(null)
+              setCredentialError(null)
+            }
+          }}
+          onSubmit={token => saveCredential(credentialCard, token)}
         />
       )}
 
@@ -1121,6 +1129,7 @@ interface CardTip {
 interface CardProps {
   card: ConnectorCard
   connection?: ConnectionView
+  errorMessage?: string
   togglePending: boolean
   authorizing: boolean
   installing: boolean
@@ -1128,6 +1137,8 @@ interface CardProps {
   onInstall: () => void
   onAuthorize: () => void
   onCancelAuthorize: () => void
+  onUpdateCredential?: () => void
+  onReauthorize?: () => void
   onRevoke?: () => void
   onTrial: () => void
   onToggle: (enabled: boolean) => void
@@ -1135,14 +1146,14 @@ interface CardProps {
   onDelete?: () => void
 }
 
-function ConnectorCardView({ card, connection, togglePending, authorizing, installing, onOpen, onInstall, onAuthorize, onCancelAuthorize, onRevoke, onTrial, onToggle, onDisconnect, onDelete }: CardProps): JSX.Element {
+function ConnectorCardView({ card, connection, errorMessage, togglePending, authorizing, installing, onOpen, onInstall, onAuthorize, onCancelAuthorize, onUpdateCredential, onReauthorize, onRevoke, onTrial, onToggle, onDisconnect, onDelete }: CardProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const [tip, setTip] = useState<CardTip | null>(null)
   const menuRef = useRef<HTMLSpanElement>(null)
   const connected = connection !== undefined && connection.authorized && connection.enabled && connection.error === undefined
   const unauthorized = connection !== undefined && !connection.authorized
   const toolCount = connection?.tools.length ?? 0
-  const error = connection?.error
+  const error = connection?.error ?? errorMessage
   const enabled = connection?.enabled === true
 
   useEffect(() => {
@@ -1240,6 +1251,7 @@ function ConnectorCardView({ card, connection, togglePending, authorizing, insta
       >
         {card.summary}
       </p>
+      {error !== undefined && <p className="dshc-card-error" title={error}>{error}</p>}
       <div className="dshc-card-foot">
         <span className="dshc-badge">{card.category}</span>
         {connection === undefined ? (
@@ -1270,7 +1282,11 @@ function ConnectorCardView({ card, connection, togglePending, authorizing, insta
             >
               {authorizing && <span className="dshc-spinner dshc-spinner-inline" aria-hidden />}
               {authorizing ? '取消授权' : '授权'}
-            </button>            <span className="dshc-card-more-wrap" ref={menuRef}>
+            </button>
+            <span className="dshc-card-installed" role="img" aria-label="已安装，待授权" title="已安装，待授权">
+              <IconCheck size={14} />
+            </span>
+            <span className="dshc-card-more-wrap" ref={menuRef}>
               <button
                 type="button"
                 className="dshc-card-more"
@@ -1319,10 +1335,12 @@ function ConnectorCardView({ card, connection, togglePending, authorizing, insta
           </span>
         ) : (
           <span className="dshc-card-actions">
-            <span className={`${actionClass} dshc-card-status`} title={actionText} aria-hidden>
-              {error !== undefined
-                ? <IconAlert size={16} />
-                : <IconCheck size={16} />}
+            <span className={`${actionClass} dshc-card-status`} title={authorizing ? '授权中…' : actionText} aria-hidden>
+              {authorizing
+                ? <span className="dshc-spinner" aria-hidden />
+                : error !== undefined
+                  ? <IconAlert size={16} />
+                  : <IconCheck size={16} />}
             </span>
             <span className="dshc-card-controls">
               <span className="dshc-card-more-wrap" ref={menuRef}>
@@ -1354,6 +1372,34 @@ function ConnectorCardView({ card, connection, togglePending, authorizing, insta
                       <IconPlay size={14} />
                       去试试
                     </button>
+                    {onUpdateCredential !== undefined && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="dshc-menu-item"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          onUpdateCredential()
+                        }}
+                      >
+                        <IconRefresh size={14} />
+                        更新令牌
+                      </button>
+                    )}
+                    {onReauthorize !== undefined && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="dshc-menu-item"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          onReauthorize()
+                        }}
+                      >
+                        <IconRefresh size={14} />
+                        重新授权
+                      </button>
+                    )}
                     {onRevoke !== undefined && (
                       <button
                         type="button"
@@ -1398,19 +1444,22 @@ function ConnectorCardView({ card, connection, togglePending, authorizing, insta
                   </span>
                 )}
               </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enabled}
-                aria-label={enabled ? `停用 ${card.name}` : `启用 ${card.name}`}
-                title={enabled ? '停用' : '启用'}
-                className="dshc-switch"
-                disabled={togglePending}
-                onClick={event => {
-                  event.stopPropagation()
-                  onToggle(!enabled)
-                }}
-              />
+              {togglePending
+                ? <span className="dshc-card-toggle" role="status" aria-label="处理中">
+                    <span className="dshc-spinner" aria-hidden />
+                  </span>
+                : <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    aria-label={enabled ? `停用 ${card.name}` : `启用 ${card.name}`}
+                    title={enabled ? '停用' : '启用'}
+                    className="dshc-switch"
+                    onClick={event => {
+                      event.stopPropagation()
+                      onToggle(!enabled)
+                    }}
+                  />}
             </span>
           </span>
         )}
@@ -1435,12 +1484,16 @@ interface ConnectorDialogProps {
   authorizeLink: string | null
   installOpen: boolean
   error: string | null
+  behind?: boolean
+  escLocked?: boolean
   onClose: () => void
   onBeginInstall: () => void
   onCancelInstall: () => void
-  onConnect: (token?: string) => void
+  onConnect: (token?: string) => Promise<boolean>
   onInstallOAuth: () => void
   onAuthorize: () => void
+  onReauthorize: () => void
+  onUpdateCredential: () => void
   onCancelAuthorize: () => void
   onTryExample: (example: string) => void
   onRevoke: () => void
@@ -1449,8 +1502,9 @@ interface ConnectorDialogProps {
   onDelete?: () => void
 }
 
-function ConnectorDialog({ card, connection, pending, toggling, authorizing, authorizeLink, installOpen, error, onClose, onBeginInstall, onCancelInstall, onConnect, onInstallOAuth, onAuthorize, onCancelAuthorize, onTryExample, onRevoke, onDisconnect, onToggle, onDelete }: ConnectorDialogProps): JSX.Element {
+function ConnectorDialog({ card, connection, pending, toggling, authorizing, authorizeLink, installOpen, error, behind = false, escLocked = false, onClose, onBeginInstall, onCancelInstall, onConnect, onInstallOAuth, onAuthorize, onReauthorize, onUpdateCredential, onCancelAuthorize, onTryExample, onRevoke, onDisconnect, onToggle, onDelete }: ConnectorDialogProps): JSX.Element {
   const [token, setToken] = useState('')
+  const [tokenVisible, setTokenVisible] = useState(false)
   const [copied, setCopied] = useState<number | null>(null)
   const [copyFailed, setCopyFailed] = useState<number | null>(null)
   const [showAllTools, setShowAllTools] = useState(false)
@@ -1472,9 +1526,9 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
   const canTry = connected && toolDetails.length > 0
   const visibleTools = showAllTools ? toolDetails : toolDetails.slice(0, 4)
   const examples = card.examples ?? []
-  const showingInstall = installOpen && !unsupported && connection === undefined
-  const failedWithToken = needsToken && connection !== undefined && connection.error !== undefined
-  const tokenEntry = needsToken && (showingInstall || failedWithToken)
+  const showingInstall = installOpen && !unsupported && connection === undefined && !needsToken
+  const failedWithToken = needsToken && connection !== undefined && connection.authorized && connection.error !== undefined
+  const tokenEntry = needsToken && connection !== undefined && (!connection.authorized || connection.error !== undefined)
   const busy = pending || toggling
   const removeLabel = onDelete === undefined ? '删除' : '断开'
   const removingLabel = onDelete === undefined ? '删除中…' : '断开中…'
@@ -1484,6 +1538,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
 
   useEffect(() => {
     setToken('')
+    setTokenVisible(false)
     setCopied(null)
     setCopyFailed(null)
     setShowAllTools(false)
@@ -1492,11 +1547,11 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !busy) onClose()
+      if (event.key === 'Escape' && !busy && !escLocked) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, busy])
+  }, [onClose, busy, escLocked])
 
   const copyExample = (index: number, text: string): void => {
     void (async () => {
@@ -1554,7 +1609,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
 
   return (
     <div
-      className="dshc-overlay"
+      className={behind ? 'dshc-overlay dshc-overlay-behind' : 'dshc-overlay'}
       onMouseDown={event => {
         if (event.target === event.currentTarget && !busy) onClose()
       }}
@@ -1580,23 +1635,37 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
             <p className="dshc-dialog-hint">{card.name} 使用 OAuth 授权，授权流程尚未接入。</p>
           )}
           {needsToken && tokenEntry && (
-            <label className="dshc-field">
-              <span>{card.authLabel ?? '访问令牌'}</span>
-              <input
-                type="password"
-                autoFocus
-                autoComplete="off"
-                placeholder={failedWithToken ? '粘贴新令牌' : '粘贴令牌'}
-                value={token}
-                onChange={event => setToken(event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === 'Enter' && !pending && token.trim() !== '') {
-                    event.preventDefault()
-                    onConnect(token)
-                  }
-                }}
-              />
-            </label>
+            <div className="dshc-field">
+              <label htmlFor="dshc-token-input">{card.authLabel ?? '访问令牌'}</label>
+              <span className="dshc-field-control">
+                <input
+                  id="dshc-token-input"
+                  type={tokenVisible ? 'text' : 'password'}
+                  autoFocus
+                  autoComplete="off"
+                  placeholder={failedWithToken ? '粘贴新令牌' : '粘贴令牌'}
+                  value={token}
+                  onChange={event => setToken(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' && !pending && token.trim() !== '') {
+                      event.preventDefault()
+                      void onConnect(token)
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="dshc-field-reveal"
+                  aria-label={tokenVisible ? '隐藏令牌' : '显示令牌'}
+                  title={tokenVisible ? '隐藏令牌' : '显示令牌'}
+                  aria-pressed={tokenVisible}
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => setTokenVisible(current => !current)}
+                >
+                  {tokenVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                </button>
+              </span>
+            </div>
           )}
           {needsToken && tokenEntry && card.authHelpUrl !== undefined && (
             <p className="dshc-dialog-hint">
@@ -1609,7 +1678,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
           {oauth && showingInstall && (
             <p className="dshc-dialog-hint">安装后会自动打开默认浏览器完成 GitLab 授权。</p>
           )}
-          {unauthorized && (
+          {oauth && unauthorized && (
             <p className="dshc-dialog-hint">
               {authorizing
                 ? '已打开授权页，完成授权后会自动同步。'
@@ -1736,7 +1805,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
               删除连接器
             </button>
           )}
-          {oauth && connection?.authorized === true && (
+          {oauth && connection?.authorized === true && !authorizing && (
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onRevoke}>
               取消授权
             </button>
@@ -1746,6 +1815,17 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
               <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={busy} onClick={onClose}>
                 关闭
               </button>
+            )}
+            {!unsupported && authorizing && connection?.authorized === true && (
+              <>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancelAuthorize}>
+                  取消授权
+                </button>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled>
+                  <span className="dshc-spinner" aria-hidden />
+                  授权中…
+                </button>
+              </>
             )}
             {!unsupported && unauthorized && (
               authorizing ? (
@@ -1763,13 +1843,24 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                   <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
                     {removeLabel}
                   </button>
-                  <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onAuthorize}>
-                    授权 GitLab
-                  </button>
+                  {oauth ? (
+                    <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onAuthorize}>
+                      授权 GitLab
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="dshc-btn dshc-btn-md dshc-btn-primary"
+                      disabled={busy || token.trim() === ''}
+                      onClick={() => onConnect(token)}
+                    >
+                      {pending ? '连接中…' : '连接'}
+                    </button>
+                  )}
                 </>
               )
             )}
-            {!unsupported && disabled && (
+            {!unsupported && !authorizing && disabled && (
               <>
                 <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
                   {removeLabel}
@@ -1784,17 +1875,27 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                 </button>
               </>
             )}
-            {!unsupported && connected && (
+            {!unsupported && !authorizing && connected && (
               <>
                 <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
                   {pending ? removingLabel : removeLabel}
                 </button>
+                {oauth && (
+                  <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onReauthorize}>
+                    重新授权
+                  </button>
+                )}
+                {needsToken && (
+                  <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onUpdateCredential}>
+                    更新令牌
+                  </button>
+                )}
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onClose}>
                   完成
                 </button>
               </>
             )}
-            {!unsupported && connection !== undefined && connection.authorized && !connected && !disabled && (
+            {!unsupported && !authorizing && connection !== undefined && connection.authorized && !connected && !disabled && (
               <>
                 <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
                   {removeLabel}
@@ -1804,7 +1905,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                     type="button"
                     className="dshc-btn dshc-btn-md dshc-btn-primary"
                     disabled={busy}
-                    onClick={onAuthorize}
+                    onClick={onReauthorize}
                   >
                     {pending ? '授权中…' : '重新授权'}
                   </button>
@@ -1832,6 +1933,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                     disabled={busy}
                     onClick={onInstallOAuth}
                   >
+                    {pending && <span className="dshc-spinner" aria-hidden />}
                     {pending ? '安装中…' : '安装'}
                   </button>
                 ) : (
@@ -1841,6 +1943,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                     disabled={busy || (needsToken && token.trim() === '')}
                     onClick={() => onConnect(needsToken ? token : undefined)}
                   >
+                    {pending && <span className="dshc-spinner" aria-hidden />}
                     {pending ? (needsToken ? '连接中…' : '安装中…') : (needsToken ? '连接' : '安装')}
                   </button>
                 )}
@@ -1857,7 +1960,8 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                   disabled={busy}
                   onClick={onBeginInstall}
                 >
-                  安装
+                  {pending && <span className="dshc-spinner" aria-hidden />}
+                  {pending ? '安装中…' : '安装'}
                 </button>
               </>
             )}
@@ -1875,6 +1979,113 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
         </div>,
         document.body,
       )}
+    </div>
+  )
+}
+
+interface CredentialDialogProps {
+  card: ConnectorCard
+  saving: boolean
+  error: string | null
+  onClose: () => void
+  onSubmit: (token: string) => void
+}
+
+function CredentialDialog({ card, saving, error, onClose, onSubmit }: CredentialDialogProps): JSX.Element {
+  const [token, setToken] = useState('')
+  const [tokenVisible, setTokenVisible] = useState(false)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !saving) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, saving])
+
+  const submit = (): void => {
+    if (saving || token.trim() === '') return
+    onSubmit(token)
+  }
+
+  return (
+    <div
+      className="dshc-overlay"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget && !saving) onClose()
+      }}
+    >
+      <div className="dshc-dialog dshc-dialog-credential" role="dialog" aria-modal="true" aria-label={`更新 ${card.name} 令牌`}>
+        <div className="dshc-dialog-head">
+          <span className="dshc-dialog-avatar"><ConnectorLogo card={card} size={28} /></span>
+          <div className="dshc-dialog-title">
+            <h2>更新令牌</h2>
+            <span>{card.name}</span>
+          </div>
+          <button type="button" className="dshc-icon-btn" aria-label="关闭" disabled={saving} onClick={onClose}>
+            <IconClose size={16} />
+          </button>
+        </div>
+        <div className="dshc-dialog-content">
+          <p className="dshc-dialog-hint">当前令牌不会显示；保存新令牌后立即替换。</p>
+          <div className="dshc-field">
+            <label htmlFor="dshc-credential-token">{card.authLabel ?? '访问令牌'}</label>
+            <span className="dshc-field-control">
+              <input
+                id="dshc-credential-token"
+                type={tokenVisible ? 'text' : 'password'}
+                autoFocus
+                autoComplete="off"
+                placeholder="粘贴新令牌"
+                value={token}
+                onChange={event => setToken(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    submit()
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="dshc-field-reveal"
+                aria-label={tokenVisible ? '隐藏令牌' : '显示令牌'}
+                title={tokenVisible ? '隐藏令牌' : '显示令牌'}
+                aria-pressed={tokenVisible}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => setTokenVisible(current => !current)}
+              >
+                {tokenVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+              </button>
+            </span>
+          </div>
+          {card.authHelpUrl !== undefined && (
+            <p className="dshc-dialog-hint">
+              <a className="dshc-link" href={card.authHelpUrl} target="_blank" rel="noreferrer">
+                {card.authHelpLabel ?? '创建访问令牌'}
+              </a>
+              {card.authHelpHint !== undefined && <span>　{card.authHelpHint}</span>}
+            </p>
+          )}
+          {error !== null && <p className="dshc-dialog-error">{error}</p>}
+        </div>
+        <div className="dshc-dialog-actions">
+          <span className="dshc-dialog-actions-right">
+            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={saving} onClick={onClose}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="dshc-btn dshc-btn-md dshc-btn-primary"
+              disabled={saving || token.trim() === ''}
+              onClick={submit}
+            >
+              {saving && <span className="dshc-spinner" aria-hidden />}
+              {saving ? '保存中…' : '保存'}
+            </button>
+          </span>
+        </div>
+      </div>
     </div>
   )
 }
@@ -2054,6 +2265,9 @@ function ConnectorLogo({ card, size = 22 }: { card: ConnectorCard; size?: number
   if (card.icon === 'github') return <BrandGithub size={size} />
   if (card.icon === 'gitlab') return <BrandGitlab size={size} />
   if (card.icon === 'context7') return <BrandContext7 size={size} className="dshc-logo-img" />
+  if (card.icon === 'linear') return <BrandLinear size={size} />
+  if (card.icon === 'neon') return <BrandNeon size={size} />
+  if (card.icon === 'supabase') return <BrandSupabase size={size} />
   return <CardIcon category={card.category} size={size} />
 }
 
@@ -2109,6 +2323,7 @@ function installStyles(): void {
 .dshc-card-title strong{font-size:14px;font-weight:500;line-height:20px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dshc-card-title span{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dshc-summary{display:-webkit-box;margin:0;min-height:36px;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;font-size:13px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dshc-card-error{display:-webkit-box;margin:0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;font-size:12px;line-height:16px;color:var(--dsw-alias-state-error-primary)}
 .dshc-card-tip{position:fixed;z-index:2000;box-sizing:border-box;max-width:min(360px,calc(100vw - 32px));max-height:min(240px,40vh);padding:6px 9px;overflow:hidden;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-tooltip-bg);color:var(--dsw-static-neutral-bluish-00,#fff);font-size:13px;line-height:20px;white-space:pre-line;overflow-wrap:break-word;box-shadow:var(--dsw-elevation-prominent);pointer-events:none;animation:dshc-tip-in .12s ease-out}
 @keyframes dshc-tip-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:translateY(0)}}
 .dshc-card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto}
@@ -2133,7 +2348,9 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-card-auth:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dshc-card-auth:disabled{opacity:.4;cursor:not-allowed}
 .dshc-card-auth:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
+.dshc-card-installed{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex:none;border:.5px solid var(--dsw-alias-border-l3);border-radius:50%;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);box-shadow:0 1px 2px color-mix(in srgb,#000 6%,transparent)}
 .dshc-card-actions{display:flex;align-items:center;flex:none}
+.dshc-card-toggle{display:inline-flex;align-items:center;justify-content:center;width:28px;height:16px;flex:none}
 .dshc-card-controls{display:flex;align-items:center;justify-content:flex-end;gap:6px;width:0;opacity:0;overflow:hidden;pointer-events:none;transition:width .26s cubic-bezier(.2,0,0,1),opacity .18s ease}
 .dshc-card-controls>*{flex:none}
 .dshc-card:hover .dshc-card-controls,.dshc-card:focus-within .dshc-card-controls,.dshc-card-menu-open .dshc-card-controls{width:62px;opacity:1;pointer-events:auto}
@@ -2160,7 +2377,7 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-dock-icon+.dshc-dock-icon{margin-left:-10px}
 .dshc-dock-icon .dshc-logo-img{border-radius:50%}
 .dshc-dock-dot{position:absolute;right:0;bottom:0;z-index:2;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-error-primary)}
-.dshc-dock-more{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-left:-10px;border-radius:50%;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:500;flex:none;z-index:4}
+.dshc-dock-more{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-left:2px;border-radius:50%;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:500;flex:none}
 .dshc-dock-popover{position:absolute;left:0;bottom:calc(100% + 8px);z-index:40;box-sizing:border-box;display:flex;flex-direction:column;width:min(340px,calc(100vw - 32px));max-height:min(460px,60vh);padding:8px;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-prominent)}
 .dshc-dock-search{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);flex:none}
 .dshc-dock-search input{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
@@ -2177,20 +2394,19 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-dock-row-error{font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dshc-dock-row-state{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dshc-dock-row-hint{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px}
-.dshc-dock-connect{flex:none;height:24px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
+.dshc-dock-toggle{display:inline-flex;align-items:center;justify-content:center;width:28px;height:16px;flex:none}
+.dshc-dock-connect{display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none;height:24px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
 .dshc-dock-connect:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .dshc-dock-connect:disabled{opacity:.4;cursor:not-allowed}
-.dshc-dock-token{display:flex;align-items:center;gap:6px;padding:2px 6px 6px 38px}
-.dshc-dock-token input{box-sizing:border-box;flex:1;min-width:0;height:30px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;outline:none}
-.dshc-dock-token input:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
 .dshc-dock-empty{padding:16px 8px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 .dshc-dock-error{padding:4px 6px;color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px;overflow-wrap:anywhere}
 .dshc-dock-manage{display:flex;align-items:center;gap:6px;height:32px;margin-top:4px;padding:0 8px;border:0;border-top:.5px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;flex:none}
 .dshc-dock-manage:hover{color:var(--dsw-alias-label-primary)}
 .dshc-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:max(24px,var(--dsh-frame-overlay-top,24px)) 24px;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur)}
-.dshc-overlay ~ .dshc-overlay{background:transparent;backdrop-filter:none}
+.dshc-overlay-behind{background:transparent;backdrop-filter:none}
 .dshc-dialog{box-sizing:border-box;position:relative;z-index:1;display:flex;flex-direction:column;gap:20px;width:min(380px,100%);max-height:min(800px,100%);padding:0 0 24px;overflow:hidden;border:0;border-radius:var(--dsw-radius-panel);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-elevation-prominent)}
 .dshc-dialog-detail,.dshc-dialog-wide{width:min(560px,100%)}
+.dshc-dialog-credential{width:min(460px,100%)}
 .dshc-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:22px 14px 12px 24px}
 .dshc-dialog-head-detail{gap:12px}
 .dshc-dialog-head h2{margin:0;font-size:16px;font-weight:500;line-height:24px}
@@ -2209,6 +2425,11 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-status-pill-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);color:var(--dsw-alias-state-error-primary)}
 .dshc-field{display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:18px;color:var(--dsw-alias-label-secondary)}
 .dshc-field input{box-sizing:border-box;height:40px;padding:0 14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;outline:none}
+.dshc-field-control{position:relative;display:block}
+.dshc-field-control input{width:100%;padding-right:40px}
+.dshc-field-reveal{position:absolute;top:50%;right:6px;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.dshc-field-reveal:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
+.dshc-field-reveal:focus-visible{outline:none;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dshc-field input::placeholder{color:var(--dsw-alias-label-caption)}
 .dshc-field input:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
 .dshc-field textarea{box-sizing:border-box;min-height:180px;max-height:320px;padding:10px 14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:12px/18px var(--dsw-font-markdown-code-font-family);outline:none;resize:vertical}

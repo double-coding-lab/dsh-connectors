@@ -23,6 +23,9 @@ const ENTRY_PREFIX = 'dsh-connectors'
 const OAUTH_PENDING_TTL_MS = 10 * 60 * 1000
 const OAUTH_FLOW_TTL_MS = 2 * 60 * 1000
 const OAUTH_REFRESH_SKEW_MS = 60 * 1000
+const OAUTH_METADATA_TTL_MS = 10 * 60 * 1000
+// GitLab.com 的 initialize + tools/list 实测可达 15s，5s 会让正常连接误判失败
+const TOOL_WAIT_TIMEOUT_MS = 30_000
 
 interface OAuthPending {
   connectorId: string
@@ -149,6 +152,7 @@ export class ConnectionService {
   private readonly oauthPending = new Map<string, OAuthPending>()
   private readonly oauthFlows = new Map<string, OAuthFlow>()
   private readonly oauthClients = new Map<string, OAuthClient>()
+  private readonly oauthMetadata = new Map<string, { metadata: OAuthMetadata; at: number }>()
   private disposing = false
 
   constructor(
@@ -193,7 +197,7 @@ export class ConnectionService {
     const table = await this.table()
     for (const [, record] of table.entries()) {
       if (!record.enabled || this.disposing) continue
-      if (this.cardFor(record.connectorId)?.authMode === 'oauth2-pkce' && record.oauth === undefined) continue
+      if (this.needsAuth(this.cardFor(record.connectorId)) && record.auth === undefined && record.oauth === undefined) continue
       try {
         const fresh = await this.ensureFreshOAuth(record)
         if (fresh !== record) await table.put(fresh.key, fresh)
@@ -213,6 +217,12 @@ export class ConnectionService {
 
     if (builtinCard !== undefined && builtinCard.published) {
       if (builtinCard.authMode === 'oauth2-pkce') return this.installOAuth(builtinCard)
+      if (
+        (builtinCard.authMode === 'bearer' || builtinCard.authMode === 'api-key')
+        && (token === undefined || token.trim() === '')
+      ) {
+        return this.installToken(builtinCard)
+      }
       const server = builtinCard.servers[0]
       if (server === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
       record = {
@@ -252,7 +262,7 @@ export class ConnectionService {
 
     try {
       await this.provision(record, true)
-      const timeoutMs = record.transport === 'stdio' ? 15_000 : 5_000
+      const timeoutMs = TOOL_WAIT_TIMEOUT_MS
       const tools = await this.waitForTools(record.serverName, timeoutMs)
       if (tools.length === 0) {
         await this.removeEntry(record.connectorId)
@@ -311,7 +321,7 @@ export class ConnectionService {
       return this.view(updated)
     }
 
-    if (this.cardFor(connectorId)?.authMode === 'oauth2-pkce' && record.oauth === undefined) {
+    if (this.needsAuth(this.cardFor(connectorId)) && record.auth === undefined && record.oauth === undefined) {
       const updated: ConnectionRecord = {
         ...record,
         enabled: true,
@@ -332,7 +342,7 @@ export class ConnectionService {
     try {
       fresh = await this.ensureFreshOAuth(updated)
       await this.provision(fresh, true)
-      const timeoutMs = fresh.transport === 'stdio' ? 15_000 : 5_000
+      const timeoutMs = TOOL_WAIT_TIMEOUT_MS
       const tools = await this.waitForTools(fresh.serverName, timeoutMs)
       if (tools.length === 0) {
         await this.removeEntry(connectorId)
@@ -385,6 +395,37 @@ export class ConnectionService {
     return this.view(record)
   }
 
+  private async installToken(card: ConnectorCard): Promise<ConnectionView> {
+    const server = card.servers[0]
+    if (server === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+
+    const table = await this.table()
+    const previous = table.get(card.id)
+    if (previous?.auth !== undefined) return this.view(previous)
+
+    const now = Date.now()
+    const record: ConnectionRecord = {
+      key: card.id,
+      connectorId: card.id,
+      name: card.name,
+      serverName: server.serverName,
+      transport: server.transport,
+      url: server.url,
+      command: server.command,
+      args: server.args,
+      enabled: true,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    }
+    await this.removeEntry(card.id)
+    await table.put(record.key, record)
+    return this.view(record)
+  }
+
+  private needsAuth(card: ConnectorCard | undefined): boolean {
+    return card?.authMode === 'oauth2-pkce' || card?.authMode === 'bearer' || card?.authMode === 'api-key'
+  }
+
   private cardFor(connectorId: string): ConnectorCard | undefined {
     return this.catalog().find(item => item.id === connectorId)
   }
@@ -408,7 +449,11 @@ export class ConnectionService {
     if (previous === undefined) {
       throw new ConnectError('not_installed', '请先安装连接器，再发起授权')
     }
-    const metadata = await fetchOAuthMetadata(server.url)
+    const cachedMetadata = this.oauthMetadata.get(server.url)
+    const metadata = cachedMetadata !== undefined && Date.now() - cachedMetadata.at < OAUTH_METADATA_TTL_MS
+      ? cachedMetadata.metadata
+      : await fetchOAuthMetadata(server.url)
+    this.oauthMetadata.set(server.url, { metadata, at: Date.now() })
     const clientKey = `${server.url}|${redirect}`
     const cached = this.oauthClients.get(clientKey)
     const client = previous?.oauth !== undefined
@@ -706,14 +751,14 @@ export class ConnectionService {
 
   private view(record: ConnectionRecord): ConnectionView {
     const toolDetails = record.enabled ? this.toolDetailsFor(record.serverName) : []
-    const requiresOAuth = this.cardFor(record.connectorId)?.authMode === 'oauth2-pkce'
+    const card = this.cardFor(record.connectorId)
     return {
       connectorId: record.connectorId,
       name: record.name,
       serverName: record.serverName,
       transport: record.transport,
       enabled: record.enabled,
-      authorized: !requiresOAuth || record.oauth !== undefined,
+      authorized: !this.needsAuth(card) || record.auth !== undefined || record.oauth !== undefined,
       tools: toolDetails.map(tool => tool.name),
       toolDetails,
       error: record.lastError,
