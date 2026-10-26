@@ -1,7 +1,8 @@
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 
-import type { CardAuth, ConnectorCard, ConnectionView, ToolInfo } from '../shared/types.js'
+import type { CardAuth, ConnectorCard, ConnectionView, CustomConfigView, ToolInfo } from '../shared/types.js'
 import { MAX_EXAMPLES, resolveCategory, validateCategory } from '../shared/categories.js'
+import { CUSTOM_SECRET_PLACEHOLDER } from '../shared/customConfig.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
 import { ConnectError } from './errors.js'
 import { resolveInstanceMcpUrl } from './instanceUrl.js'
@@ -79,6 +80,83 @@ function headersFor(record: ConnectionRecord): Record<string, string> {
     headers[record.auth.header] = `${record.auth.prefix}${record.auth.token}`
   }
   return headers
+}
+
+function redactCustomUrl(value: string): string {
+  try {
+    const url = new URL(value)
+    if (url.search === '' && url.hash === '') return value
+    return `${url.origin}${url.pathname}?${CUSTOM_SECRET_PLACEHOLDER}`
+  } catch {
+    return value
+  }
+}
+
+function restoreCustomUrl(value: string, previous: string | undefined): string {
+  const marker = `?${CUSTOM_SECRET_PLACEHOLDER}`
+  if (!value.endsWith(marker) || previous === undefined) return value
+  try {
+    const url = new URL(previous)
+    return `${value.slice(0, -marker.length)}${url.search}${url.hash}`
+  } catch {
+    return value
+  }
+}
+
+function redactValues(values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.keys(values).map(key => [key, CUSTOM_SECRET_PLACEHOLDER]))
+}
+
+function mergeSecretValues(
+  next: Record<string, string> | undefined,
+  previous: Record<string, string> | undefined,
+  label: string,
+): Record<string, string> | undefined {
+  if (next === undefined) return undefined
+  const merged: Record<string, string> = {}
+  for (const [key, value] of Object.entries(next)) {
+    if (value !== CUSTOM_SECRET_PLACEHOLDER) {
+      merged[key] = value
+      continue
+    }
+    const stored = previous?.[key]
+    if (stored === undefined) {
+      throw new ConnectError(
+        'invalid_custom_config',
+        `${label}.${key} 是占位值，但没有已保存的值，请填写新值`,
+      )
+    }
+    merged[key] = stored
+  }
+  return merged
+}
+
+function sameStringArray(left: string[] | undefined, right: string[] | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right
+  return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
+function sameStringMap(
+  left: Record<string, string> | undefined,
+  right: Record<string, string> | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right
+  const leftKeys = Object.keys(left).sort()
+  const rightKeys = Object.keys(right).sort()
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key])
+}
+
+function sameConnectionConfig(
+  left: CustomConnectorRecord,
+  right: CustomConnectorRecord,
+): boolean {
+  return left.url === right.url
+    && left.command === right.command
+    && left.cwd === right.cwd
+    && sameStringArray(left.args, right.args)
+    && sameStringMap(left.env, right.env)
+    && sameStringMap(left.headers, right.headers)
 }
 
 function entryConfig(record: ConnectionRecord, failOnStartupError: boolean): Record<string, unknown> {
@@ -297,6 +375,43 @@ export class ConnectionService {
     const { oauth: _oauth, ...rest } = record
     const updated: ConnectionRecord = {
       ...rest,
+      enabled: true,
+      lastError: undefined,
+      updatedAt: Date.now(),
+    }
+    await table.put(connectorId, updated)
+    return this.view(updated)
+  }
+
+  async reconfigureInstance(connectorId: string, instanceUrl: string): Promise<ConnectionView> {
+    const card = this.catalog().find(item => item.id === connectorId)
+    if (card === undefined || !card.published || card.instance === undefined || card.auth.type !== 'oauth2') {
+      throw new ConnectError('not_found', '连接器不存在或不支持更换实例')
+    }
+    const table = await this.table()
+    const previous = table.get(connectorId)
+    if (previous === undefined) throw new ConnectError('not_installed', '请先安装连接器')
+
+    const resolved = resolveInstanceMcpUrl(instanceUrl)
+    const url = card.server.url?.replace('{instance}', resolved.instanceUrl)
+    if (url === undefined || url.includes('{instance}')) {
+      throw new ConnectError('invalid_connector', '连接器地址模板不合法')
+    }
+
+    for (const [state, pending] of this.oauthPending) {
+      if (pending.connectorId === connectorId) this.oauthPending.delete(state)
+    }
+    for (const [state, flow] of this.oauthFlows) {
+      if (flow.connectorId === connectorId) this.oauthFlows.delete(state)
+    }
+
+    if (previous.url === url) return this.view(previous)
+
+    await this.removeEntry(connectorId)
+    const { oauth: _oauth, auth: _auth, ...rest } = previous
+    const updated: ConnectionRecord = {
+      ...rest,
+      url,
       enabled: true,
       lastError: undefined,
       updatedAt: Date.now(),
@@ -780,6 +895,124 @@ export class ConnectionService {
       await connections.delete(connectorId)
     }
     await customTable.delete(connectorId)
+  }
+
+  async customConfig(connectorId: string): Promise<CustomConfigView> {
+    const record = (await this.customTable()).get(connectorId)
+    if (record === undefined) throw new ConnectError('not_found', '自定义连接器不存在')
+
+    const server: Record<string, unknown> = {}
+    if (record.url !== undefined) server.url = redactCustomUrl(record.url)
+    if (record.command !== undefined) server.command = record.command
+    if (record.args !== undefined) server.args = record.args
+    if (record.env !== undefined) server.env = redactValues(record.env)
+    if (record.cwd !== undefined) server.cwd = record.cwd
+    if (record.headers !== undefined) server.headers = redactValues(record.headers)
+    const metadata: Record<string, unknown> = {}
+    if (record.category !== undefined) metadata.category = record.category
+    if (record.description !== undefined) metadata.description = record.description
+    if (record.examples !== undefined) metadata.examples = record.examples
+    if (Object.keys(metadata).length > 0) server['x-dsh'] = metadata
+
+    const connections = await this.table()
+    return {
+      json: JSON.stringify({ mcpServers: { [record.serverName]: server } }, null, 2),
+      installed: connections.get(connectorId) !== undefined,
+    }
+  }
+
+  async updateCustom(
+    connectorId: string,
+    text: string,
+    allowPrivate: boolean,
+    options: { category?: string; description?: string; examples?: string[] } = {},
+  ): Promise<{ card: ConnectorCard; disconnected: boolean }> {
+    const customTable = await this.customTable()
+    const previous = customTable.get(connectorId)
+    if (previous === undefined) throw new ConnectError('not_found', '自定义连接器不存在')
+
+    const seeds = parseMcpServers(text)
+    if (seeds.length !== 1) {
+      throw new ConnectError('invalid_custom_config', '编辑时只能保留一个 Server')
+    }
+    const seed = seeds[0]
+    if (seed === undefined) {
+      throw new ConnectError('invalid_custom_config', '编辑时只能保留一个 Server')
+    }
+    if (seed.serverName !== previous.serverName) {
+      throw new ConnectError('server_name_conflict', '编辑时不能修改 serverName')
+    }
+    assertPrivateUrlsAllowed(seeds, allowPrivate)
+
+    if (options.category !== undefined) {
+      const problem = validateCategory(options.category)
+      if (problem !== undefined) throw new ConnectError('invalid_category', problem)
+    }
+    const batchDescription = options.description?.trim()
+    if (batchDescription !== undefined && batchDescription !== '' && Array.from(batchDescription).length > 120) {
+      throw new ConnectError('invalid_description', '描述最多 120 字')
+    }
+    const batchExamples = options.examples === undefined
+      ? undefined
+      : options.examples.map(item => item.trim()).filter(item => item !== '')
+    if (batchExamples !== undefined && batchExamples.length > MAX_EXAMPLES) {
+      throw new ConnectError('invalid_examples', `示例提示词最多 ${MAX_EXAMPLES} 条`)
+    }
+
+    const rawCategory = options.category ?? seed.category
+    if (rawCategory !== undefined) {
+      const problem = validateCategory(rawCategory)
+      if (problem !== undefined) {
+        throw new ConnectError('invalid_category', `${seed.serverName}: ${problem}`)
+      }
+    }
+    const category = resolveCategory(rawCategory)
+    const rawDescription = batchDescription === undefined || batchDescription === ''
+      ? seed.description
+      : batchDescription
+    const description = rawDescription?.trim()
+    if (description !== undefined && description !== '' && Array.from(description).length > 120) {
+      throw new ConnectError('invalid_description', `${seed.serverName}: 描述最多 120 字`)
+    }
+    const examples = batchExamples !== undefined && batchExamples.length > 0
+      ? batchExamples
+      : seed.examples ?? []
+
+    const url = seed.url === undefined ? undefined : restoreCustomUrl(seed.url, previous.url)
+    if (url !== undefined && url.endsWith(`?${CUSTOM_SECRET_PLACEHOLDER}`)) {
+      throw new ConnectError('invalid_custom_config', 'URL 中的占位值没有已保存的查询参数，请填写完整地址')
+    }
+    const headers = mergeSecretValues(seed.headers, previous.headers, `${seed.serverName}.headers`)
+    const env = mergeSecretValues(seed.env, previous.env, `${seed.serverName}.env`)
+
+    const { description: _oldDescription, examples: _oldExamples, ...rest } = previous
+    const record: CustomConnectorRecord = {
+      ...rest,
+      transport: seed.transport,
+      url,
+      command: seed.command,
+      args: seed.args,
+      env,
+      cwd: seed.cwd,
+      headers,
+      category,
+      ...(description === undefined || description === '' ? {} : { description }),
+      ...(examples.length === 0 ? {} : { examples }),
+      updatedAt: Date.now(),
+    }
+    await customTable.put(connectorId, record)
+
+    const changed = !sameConnectionConfig(previous, record)
+    let disconnected = false
+    if (changed) {
+      const connections = await this.table()
+      if (connections.get(connectorId) !== undefined) {
+        await this.removeEntry(connectorId)
+        await connections.delete(connectorId)
+        disconnected = true
+      }
+    }
+    return { card: this.customCard(record), disconnected }
   }
 
   private authFor(card: ConnectorCard, token?: string): ConnectionRecord['auth'] {

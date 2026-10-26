@@ -91,6 +91,26 @@ export interface CustomConnectorsPayload {
   }
 }
 
+export interface CustomConfigView {
+  json: string
+  installed: boolean
+}
+
+export interface CustomConfigPayload {
+  ok: true
+  value: {
+    config: CustomConfigView
+  }
+}
+
+export interface CustomUpdatePayload {
+  ok: true
+  value: {
+    card: ConnectorCard
+    disconnected: boolean
+  }
+}
+
 export interface OAuthStartPayload {
   ok: true
   value: {

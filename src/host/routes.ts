@@ -280,6 +280,55 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
         return
       }
 
+      const customConfigId = req.method === 'GET'
+        ? new RegExp(`^${ROUTE_PREFIX}/api/custom-connectors/([^/]+)/config$`).exec(path)?.[1]
+        : undefined
+      if (customConfigId !== undefined) {
+        const config = await options.connections.customConfig(decodeURIComponent(customConfigId))
+        json(res, 200, { ok: true, value: { config } })
+        return
+      }
+
+      const updateCustomId = req.method === 'PUT'
+        ? new RegExp(`^${ROUTE_PREFIX}/api/custom-connectors/([^/]+)$`).exec(path)?.[1]
+        : undefined
+      if (updateCustomId !== undefined) {
+        const body = await readJson(req) as {
+          json?: unknown
+          allowPrivate?: unknown
+          category?: unknown
+          description?: unknown
+          examples?: unknown
+        }
+        if (typeof body.json !== 'string' || body.json.trim() === '') {
+          throw new ConnectError('invalid_request', '缺少 mcpServers JSON')
+        }
+        if (body.allowPrivate !== undefined && typeof body.allowPrivate !== 'boolean') {
+          throw new ConnectError('invalid_request', 'allowPrivate 必须是布尔值')
+        }
+        if (body.category !== undefined && typeof body.category !== 'string') {
+          throw new ConnectError('invalid_request', 'category 必须是字符串')
+        }
+        if (body.description !== undefined && typeof body.description !== 'string') {
+          throw new ConnectError('invalid_request', 'description 必须是字符串')
+        }
+        if (body.examples !== undefined && (!Array.isArray(body.examples) || body.examples.some(item => typeof item !== 'string'))) {
+          throw new ConnectError('invalid_request', 'examples 必须是字符串数组')
+        }
+        const result = await options.connections.updateCustom(
+          decodeURIComponent(updateCustomId),
+          body.json,
+          body.allowPrivate === true,
+          {
+            ...(body.category === undefined ? {} : { category: body.category }),
+            ...(body.description === undefined ? {} : { description: body.description }),
+            ...(body.examples === undefined ? {} : { examples: body.examples as string[] }),
+          },
+        )
+        json(res, 200, { ok: true, value: result })
+        return
+      }
+
       const customId = req.method === 'DELETE'
         ? new RegExp(`^${ROUTE_PREFIX}/api/custom-connectors/([^/]+)$`).exec(path)?.[1]
         : undefined
@@ -298,6 +347,22 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
           throw new ConnectError('invalid_request', 'enabled 必须是布尔值')
         }
         const connection = await options.connections.setEnabled(decodeURIComponent(patchId), body.enabled)
+        json(res, 200, { ok: true, value: { connection } })
+        return
+      }
+
+      const instanceId = req.method === 'POST'
+        ? new RegExp(`^${ROUTE_PREFIX}/api/connections/([^/]+)/instance$`).exec(path)?.[1]
+        : undefined
+      if (instanceId !== undefined) {
+        const body = await readJson(req) as { instanceUrl?: unknown }
+        if (typeof body.instanceUrl !== 'string' || body.instanceUrl.trim() === '') {
+          throw new ConnectError('invalid_request', '缺少 instanceUrl')
+        }
+        const connection = await options.connections.reconfigureInstance(
+          decodeURIComponent(instanceId),
+          body.instanceUrl,
+        )
         json(res, 200, { ok: true, value: { connection } })
         return
       }

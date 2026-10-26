@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { canonicalizeCardCategories, parseExampleLines, resolveCategory, validateCategory } from '../dist/shared/categories.js'
 import { parseMcpServers } from '../dist/host/mcpServers.js'
 import { ConnectionService } from '../dist/host/connections.js'
+import { CUSTOM_SECRET_PLACEHOLDER } from '../dist/shared/customConfig.js'
 
 assert.equal(resolveCategory(' 开发工具 '), '开发工具')
 assert.equal(resolveCategory('  '), '其他')
@@ -144,5 +145,236 @@ const multiOverridden = await makeService().importCustom(multiXdsh, false, { cat
 assert.deepEqual(multiOverridden.map(card => card.category), ['开发工具', '开发工具'])
 const multiFallback = await makeService().importCustom(multiXdsh, false, {})
 assert.deepEqual(multiFallback.map(card => card.category), ['知识检索', '办公协作'])
+
+const instanceCard = {
+  id: 'gitlab-self-hosted',
+  name: 'GitLab 自建',
+  vendor: 'GitLab',
+  category: '开发工具',
+  summary: '',
+  tags: [],
+  published: true,
+  auth: { type: 'oauth2', registration: 'dcr', scopes: ['mcp'] },
+  server: { serverName: 'gitlab', transport: 'streamable-http', url: '{instance}/api/v4/mcp' },
+  instance: { label: '实例地址' },
+}
+
+function baseInstanceRecord() {
+  return {
+    key: 'gitlab-self-hosted',
+    connectorId: 'gitlab-self-hosted',
+    name: 'GitLab 自建',
+    serverName: 'gitlab',
+    transport: 'streamable-http',
+    url: 'https://old.example.com/api/v4/mcp',
+    enabled: true,
+    oauth: {
+      provider: 'gitlab',
+      clientId: 'client-id',
+      tokenEndpoint: 'https://old.example.com/oauth/token',
+      authorizationEndpoint: 'https://old.example.com/oauth/authorize',
+      accessToken: 'old-token',
+    },
+    createdAt: 1,
+    updatedAt: 2,
+  }
+}
+
+function makeInstanceService(record) {
+  const tables = new Map()
+  const tableFor = name => {
+    if (!tables.has(name)) {
+      const rows = new Map()
+      tables.set(name, {
+        get: key => rows.get(key),
+        entries: () => rows.entries(),
+        put: async (key, value) => {
+          rows.set(key, value)
+        },
+        delete: async key => {
+          rows.delete(key)
+        },
+      })
+    }
+    return tables.get(name)
+  }
+  const removed = []
+  const service = new ConnectionService({
+    loader: {
+      resolve: () => ({}),
+      remove: async id => {
+        removed.push(id)
+      },
+    },
+    storageDomain: {
+      open: async () => ({ table: tableFor, close: async () => {} }),
+    },
+  }, () => [instanceCard])
+  tableFor('connections').put(record.key, record)
+  return { service, removed, table: tableFor('connections') }
+}
+
+const changed = makeInstanceService(baseInstanceRecord())
+const changedView = await changed.service.reconfigureInstance('gitlab-self-hosted', 'https://new.example.com')
+assert.equal(changedView.instanceReady, true)
+assert.equal(changedView.authorized, false)
+assert.equal(changed.table.get('gitlab-self-hosted')?.url, 'https://new.example.com/api/v4/mcp')
+assert.equal(changed.table.get('gitlab-self-hosted')?.oauth, undefined)
+assert.equal(changed.table.get('gitlab-self-hosted')?.createdAt, 1)
+assert.deepEqual(changed.removed, ['dsh-connectors-gitlab-self-hosted'])
+
+const same = makeInstanceService(baseInstanceRecord())
+const sameView = await same.service.reconfigureInstance('gitlab-self-hosted', 'https://old.example.com')
+assert.equal(sameView.authorized, true)
+assert.ok(same.table.get('gitlab-self-hosted')?.oauth !== undefined)
+assert.equal(same.removed.length, 0)
+
+const invalid = makeInstanceService(baseInstanceRecord())
+await assert.rejects(
+  () => invalid.service.reconfigureInstance('gitlab-self-hosted', 'ftp://old.example.com'),
+  error => error?.code === 'invalid_instance_url',
+)
+assert.equal(invalid.table.get('gitlab-self-hosted')?.url, 'https://old.example.com/api/v4/mcp')
+assert.ok(invalid.table.get('gitlab-self-hosted')?.oauth !== undefined)
+
+function makeCustomService() {
+  const tables = new Map()
+  const tableFor = name => {
+    if (!tables.has(name)) {
+      const rows = new Map()
+      tables.set(name, {
+        get: key => rows.get(key),
+        entries: () => rows.entries(),
+        put: async (key, value) => {
+          rows.set(key, value)
+        },
+        delete: async key => {
+          rows.delete(key)
+        },
+      })
+    }
+    return tables.get(name)
+  }
+  const removed = []
+  const service = new ConnectionService({
+    loader: {
+      resolve: () => ({}),
+      remove: async id => {
+        removed.push(id)
+      },
+    },
+    storageDomain: {
+      open: async () => ({ table: tableFor, close: async () => {} }),
+    },
+  }, () => [])
+  return {
+    service,
+    removed,
+    customTable: tableFor('custom_connectors'),
+    connectionTable: tableFor('connections'),
+  }
+}
+
+const originalConfig = JSON.stringify({
+  mcpServers: {
+    github11: {
+      url: 'https://api.example.com/mcp?token=url-secret',
+      headers: {
+        Authorization: 'Bearer header-secret',
+        'X-Client': 'dsh',
+      },
+    },
+  },
+})
+const custom = makeCustomService()
+await custom.service.importCustom(originalConfig, false)
+
+const redacted = await custom.service.customConfig('custom-github11')
+assert.equal(redacted.installed, false)
+assert.ok(!redacted.json.includes('url-secret'))
+assert.ok(!redacted.json.includes('header-secret'))
+assert.ok(redacted.json.includes(CUSTOM_SECRET_PLACEHOLDER))
+
+custom.connectionTable.put('custom-github11', {
+  key: 'custom-github11',
+  connectorId: 'custom-github11',
+  name: 'github11',
+  serverName: 'github11',
+  transport: 'streamable-http',
+  url: 'https://api.example.com/mcp?token=url-secret',
+  headers: {
+    Authorization: 'Bearer header-secret',
+    'X-Client': 'dsh',
+  },
+  enabled: true,
+  createdAt: 1,
+  updatedAt: 2,
+})
+
+const sameConfig = JSON.stringify({
+  mcpServers: {
+    github11: {
+      url: `https://api.example.com/mcp?${CUSTOM_SECRET_PLACEHOLDER}`,
+      headers: {
+        Authorization: CUSTOM_SECRET_PLACEHOLDER,
+        'X-Client': 'dsh',
+      },
+      'x-dsh': {
+        category: '知识检索',
+        description: '旧描述',
+      },
+    },
+  },
+})
+const metadataOnly = await custom.service.updateCustom('custom-github11', sameConfig, false, {
+  category: '开发工具',
+  description: '新描述',
+  examples: ['新示例'],
+})
+assert.equal(metadataOnly.disconnected, false)
+assert.equal(metadataOnly.card.category, '开发工具')
+const mergedRecord = custom.customTable.get('custom-github11')
+assert.equal(mergedRecord?.url, 'https://api.example.com/mcp?token=url-secret')
+assert.equal(mergedRecord?.headers?.Authorization, 'Bearer header-secret')
+assert.equal(mergedRecord?.headers?.['X-Client'], 'dsh')
+assert.equal(mergedRecord?.description, '新描述')
+assert.deepEqual(mergedRecord?.examples, ['新示例'])
+assert.ok(custom.connectionTable.get('custom-github11') !== undefined)
+assert.equal(custom.removed.length, 0)
+
+const changedConfig = JSON.stringify({
+  mcpServers: {
+    github11: {
+      url: 'https://new.example.com/mcp?token=new-secret',
+      headers: {
+        Authorization: 'Bearer new-header',
+        'X-Client': 'dsh',
+      },
+    },
+  },
+})
+const changedCustom = await custom.service.updateCustom('custom-github11', changedConfig, false, {
+  category: '开发工具',
+  description: '新描述',
+  examples: ['新示例'],
+})
+assert.equal(changedCustom.disconnected, true)
+assert.equal(custom.connectionTable.get('custom-github11'), undefined)
+assert.deepEqual(custom.removed, ['dsh-connectors-custom-github11'])
+assert.equal(custom.customTable.get('custom-github11')?.url, 'https://new.example.com/mcp?token=new-secret')
+
+const badCustom = makeCustomService()
+await badCustom.service.importCustom(originalConfig, false)
+await assert.rejects(
+  () => badCustom.service.updateCustom('custom-github11', JSON.stringify({
+    mcpServers: {
+      github11: {
+        url: 'https://api.example.com/mcp',
+        headers: { 'X-New': CUSTOM_SECRET_PLACEHOLDER },
+      },
+    },
+  }), false),
+  error => error?.code === 'invalid_custom_config',
+)
 
 console.log('custom metadata tests: passed')

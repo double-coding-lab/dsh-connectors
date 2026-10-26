@@ -2,11 +2,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 
-import type { CatalogPayload, ConnectionView, ConnectorCard, ConnectionsPayload, CustomConnectorsPayload, OAuthStartPayload, OAuthStatusPayload, ToolInfo } from '../shared/types.js'
+import type { CatalogPayload, ConnectionView, ConnectorCard, ConnectionsPayload, CustomConfigPayload, CustomConfigView, CustomConnectorsPayload, CustomUpdatePayload, OAuthStartPayload, OAuthStatusPayload, ToolInfo } from '../shared/types.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
-import { IconAlert, IconCheck, IconChevronDown, IconClose, IconCopy, IconEye, IconEyeOff, IconHelp, IconLink, IconMore, IconPlay, IconPlug, IconPlus, IconRefresh, IconSearch, IconTrash } from './icons.js'
+import { IconAlert, IconCheck, IconChevronDown, IconClose, IconCopy, IconEye, IconEyeOff, IconHelp, IconLink, IconMore, IconPencil, IconPlay, IconPlug, IconPlus, IconRefresh, IconSearch, IconServer, IconTrash } from './icons.js'
 import { PROVIDER_ICONS } from './provider-icons.generated.js'
 import { BUILTIN_CATEGORIES, canonicalizeCardCategories, parseExampleLines } from '../shared/categories.js'
+import { CUSTOM_SECRET_PLACEHOLDER } from '../shared/customConfig.js'
 
 export const inject: string[] = []
 
@@ -621,6 +622,13 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
   const [customOpen, setCustomOpen] = useState(false)
   const [deleteCard, setDeleteCard] = useState<ConnectorCard | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [instanceCard, setInstanceCard] = useState<ConnectorCard | null>(null)
+  const [instancePending, setInstancePending] = useState(false)
+  const [instanceError, setInstanceError] = useState<string | null>(null)
+  const [instanceReturnToDetail, setInstanceReturnToDetail] = useState(false)
+  const [editCard, setEditCard] = useState<ConnectorCard | null>(null)
+  const [editConfig, setEditConfig] = useState<CustomConfigView | null>(null)
+  const [editReturnToDetail, setEditReturnToDetail] = useState(false)
 
   const refreshConnections = (): void => {
     void (async () => {
@@ -748,8 +756,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
 
   const connect = (card: ConnectorCard, token?: string, surface: 'dialog' | 'page' = 'dialog'): Promise<boolean> => {
     setPending(card.id)
+    clearCardError(card.id)
     if (surface === 'dialog') setDialogError(null)
-    else clearCardError(card.id)
     return (async () => {
       try {
         const response = await withInstallFeedback(request<ConnectResponse>(`${ROUTE_PREFIX}/api/connections`, {
@@ -766,8 +774,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
         return true
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause)
+        setCardError(card.id, message)
         if (surface === 'dialog') setDialogError(message)
-        else setCardError(card.id, message)
         return false
       } finally {
         setPending(null)
@@ -787,19 +795,19 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
 
   const installRecord = (card: ConnectorCard, surface: 'dialog' | 'page'): void => {
     setPending(card.id)
+    clearCardError(card.id)
     if (surface === 'dialog') setDialogError(null)
-    else clearCardError(card.id)
     void (async () => {
       try {
         const connection = await installConnector(card)
         applyConnection(connection)
-        setDialogCard(card)
+        if (surface === 'page') setDialogCard(card)
         setDialogInstall(false)
         if (surface === 'dialog') setDialogError(null)
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause)
+        setCardError(card.id, message)
         if (surface === 'dialog') setDialogError(message)
-        else setCardError(card.id, message)
       } finally {
         setPending(null)
       }
@@ -811,8 +819,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
     oauthAbortRef.current = controller
     setOauthStarting(card.id)
     setPending(card.id)
+    clearCardError(card.id)
     if (surface === 'dialog') setDialogError(null)
-    else clearCardError(card.id)
     void (async () => {
       try {
         let connection = presetConnection ?? connections[card.id]
@@ -840,8 +848,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
       } catch (cause) {
         if (!(cause instanceof ApiError && cause.code === 'oauth_cancelled')) {
           const message = cause instanceof Error ? cause.message : String(cause)
+          setCardError(card.id, message)
           if (surface === 'dialog') setDialogError(message)
-          else setCardError(card.id, message)
         }
         refreshConnections()
       } finally {
@@ -855,6 +863,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
 
   const configureInstance = (card: ConnectorCard, instanceUrl: string): void => {
     setPending(card.id)
+    clearCardError(card.id)
     setDialogError(null)
     void (async () => {
       try {
@@ -869,10 +878,86 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
         setPending(null)
         runOAuth(card, false, 'dialog', false, connection)
       } catch (cause) {
-        setDialogError(cause instanceof Error ? cause.message : String(cause))
+        const message = cause instanceof Error ? cause.message : String(cause)
+        setCardError(card.id, message)
+        setDialogError(message)
         setPending(null)
       }
     })()
+  }
+
+  const openInstanceEdit = (card: ConnectorCard, fromDetail = false): void => {
+    setInstanceError(null)
+    setInstanceReturnToDetail(fromDetail)
+    setDialogCard(null)
+    setInstanceCard(card)
+  }
+
+  const changeInstance = (card: ConnectorCard, instanceUrl: string): void => {
+    setInstancePending(true)
+    setInstanceError(null)
+    void (async () => {
+      try {
+        const response = await withInstallFeedback(request<ConnectResponse>(
+          `${ROUTE_PREFIX}/api/connections/${encodeURIComponent(card.id)}/instance`,
+          { method: 'POST', body: JSON.stringify({ instanceUrl }) },
+        ))
+        const connection = response.value?.connection
+        if (connection === undefined) throw new ApiError('invalid_response', '更换实例失败：宿主没有返回连接')
+        applyConnection(connection)
+        setInstanceCard(null)
+        setDialogCard(card)
+        runOAuth(card, false, 'dialog', true, connection)
+      } catch (cause) {
+        setInstanceError(cause instanceof Error ? cause.message : String(cause))
+      } finally {
+        setInstancePending(false)
+      }
+    })()
+  }
+
+  const openCustomEdit = (card: ConnectorCard, fromDetail = false): void => {
+    clearCardError(card.id)
+    setDialogCard(null)
+    setEditReturnToDetail(fromDetail)
+    setEditCard(null)
+    setEditConfig(null)
+    void (async () => {
+      try {
+        const response = await request<CustomConfigPayload>(
+          `${ROUTE_PREFIX}/api/custom-connectors/${encodeURIComponent(card.id)}/config`,
+        )
+        setEditConfig(response.value.config)
+        setEditCard(card)
+      } catch (cause) {
+        setCardError(card.id, cause instanceof Error ? cause.message : String(cause))
+        if (fromDetail) setDialogCard(card)
+      }
+    })()
+  }
+
+  const closeCustomEdit = (): void => {
+    setEditCard(null)
+    setEditConfig(null)
+    if (editReturnToDetail) setDialogCard(editCard)
+  }
+
+  const applyCustomEdit = (result: CustomUpdatePayload['value']): void => {
+    const updated = canonicalizeCardCategories([result.card])[0] ?? result.card
+    setCards(previous => canonicalizeCardCategories(
+      previous.map(card => (card.id === updated.id ? updated : card)),
+    ))
+    if (result.disconnected) {
+      setConnections(previous => {
+        const next = { ...previous }
+        delete next[updated.id]
+        return next
+      })
+    }
+    setEditCard(null)
+    setEditConfig(null)
+    if (editReturnToDetail) setDialogCard(updated)
+    notifyConnectionsChanged()
   }
 
   const cancelAuthorize = (): void => {
@@ -889,8 +974,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
 
   const revoke = (card: ConnectorCard, surface: 'dialog' | 'page' = 'dialog'): void => {
     setPending(card.id)
+    clearCardError(card.id)
     if (surface === 'dialog') setDialogError(null)
-    else clearCardError(card.id)
     void (async () => {
       try {
         const response = await request<ConnectResponse>(
@@ -902,8 +987,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
         else refreshConnections()
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause)
+        setCardError(card.id, message)
         if (surface === 'dialog') setDialogError(message)
-        else setCardError(card.id, message)
       } finally {
         setPending(null)
       }
@@ -1101,6 +1186,9 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                   onReauthorize={isOAuthCard(card) && connections[card.id]?.authorized === true
                     ? () => runOAuth(card, false, 'page', true)
                     : undefined}
+                  onReconfigureInstance={card.instance !== undefined && connections[card.id]?.instanceReady === true
+                    ? () => openInstanceEdit(card)
+                    : undefined}
                   onRevoke={isOAuthCard(card)
                     ? () => revoke(card, 'page')
                     : undefined}
@@ -1113,6 +1201,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                         setDeleteCard(card)
                       }
                     : undefined}
+                  onEditCustom={card.source === 'custom' ? () => openCustomEdit(card) : undefined}
                 />
               ))}
             </div>
@@ -1132,11 +1221,9 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
           behind={credentialCard !== null || deleteCard !== null}
           escLocked={credentialCard !== null || deleteCard !== null}
           onClose={() => {
-            if (pending === null) {
-              setDialogCard(null)
-              setDialogInstall(false)
-              setDialogError(null)
-            }
+            setDialogCard(null)
+            setDialogInstall(false)
+            setDialogError(null)
           }}
           onBeginInstall={() => {
             if (isTokenCard(dialogCard) || dialogCard.instance !== undefined) {
@@ -1159,6 +1246,9 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
           onConfigureInstance={instanceUrl => configureInstance(dialogCard, instanceUrl)}
           onAuthorize={() => runOAuth(dialogCard, false)}
           onReauthorize={() => runOAuth(dialogCard, false, 'dialog', true)}
+          onReconfigureInstance={dialogCard.instance !== undefined && connections[dialogCard.id]?.instanceReady === true
+            ? () => openInstanceEdit(dialogCard, true)
+            : undefined}
           onUpdateCredential={() => openCredentialDialog(dialogCard)}
           onCancelAuthorize={cancelAuthorize}
           onTryExample={example => tryExample(dialogCard, example)}
@@ -1170,6 +1260,9 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                 setDeleteError(null)
                 setDeleteCard(dialogCard)
               }
+            : undefined}
+          onEditCustom={dialogCard.source === 'custom'
+            ? () => openCustomEdit(dialogCard, true)
             : undefined}
         />
       )}
@@ -1186,6 +1279,32 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
             }
           }}
           onSubmit={token => saveCredential(credentialCard, token)}
+        />
+      )}
+
+      {instanceCard !== null && (
+        <InstanceDialog
+          card={instanceCard}
+          pending={instancePending}
+          error={instanceError}
+          onClose={() => {
+            if (!instancePending) {
+              setInstanceCard(null)
+              setInstanceError(null)
+              if (instanceReturnToDetail) setDialogCard(instanceCard)
+            }
+          }}
+          onSubmit={instanceUrl => changeInstance(instanceCard, instanceUrl)}
+        />
+      )}
+
+      {editCard !== null && editConfig !== null && (
+        <CustomConnectorDialog
+          categoryOptions={categoryOptions}
+          onClose={closeCustomEdit}
+          onImported={onImported}
+          editing={{ connectorId: editCard.id, initial: editConfig }}
+          onEdited={applyCustomEdit}
         />
       )}
 
@@ -1234,14 +1353,16 @@ interface CardProps {
   onCancelAuthorize: () => void
   onUpdateCredential?: () => void
   onReauthorize?: () => void
+  onReconfigureInstance?: () => void
   onRevoke?: () => void
   onTrial: () => void
   onToggle: (enabled: boolean) => void
   onDisconnect: () => void
   onDelete?: () => void
+  onEditCustom?: () => void
 }
 
-function ConnectorCardView({ card, connection, errorMessage, togglePending, authorizing, installing, onOpen, onInstall, onAuthorize, onCancelAuthorize, onUpdateCredential, onReauthorize, onRevoke, onTrial, onToggle, onDisconnect, onDelete }: CardProps): JSX.Element {
+function ConnectorCardView({ card, connection, errorMessage, togglePending, authorizing, installing, onOpen, onInstall, onAuthorize, onCancelAuthorize, onUpdateCredential, onReauthorize, onReconfigureInstance, onRevoke, onTrial, onToggle, onDisconnect, onDelete, onEditCustom }: CardProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const [tip, setTip] = useState<CardTip | null>(null)
   const menuRef = useRef<HTMLSpanElement>(null)
@@ -1299,6 +1420,10 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
         : toolCount > 0
           ? `已连接 · ${toolCount} 个工具\n${connection.tools.join('\n')}`
           : '已连接 · 注册中')
+  const installActionClass = installing
+    ? 'dshc-card-action dshc-card-action-connect dshc-card-action-loading'
+    : 'dshc-card-action dshc-card-action-connect'
+  const installLabel = installing ? '安装中…' : error !== undefined ? '重试' : '安装'
   const stateLabel = error !== undefined
     ? '，连接失败'
     : connection === undefined
@@ -1335,6 +1460,36 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
     >
       <IconPlug size={14} />
       断开
+    </button>
+  )
+  const reconfigureItem = onReconfigureInstance === undefined ? null : (
+    <button
+      type="button"
+      role="menuitem"
+      className="dshc-menu-item"
+      disabled={authorizing}
+      onClick={() => {
+        setMenuOpen(false)
+        onReconfigureInstance()
+      }}
+    >
+      <IconServer size={14} />
+      更换实例
+    </button>
+  )
+  const editItem = onEditCustom === undefined ? null : (
+    <button
+      type="button"
+      role="menuitem"
+      className="dshc-menu-item"
+      disabled={authorizing}
+      onClick={() => {
+        setMenuOpen(false)
+        onEditCustom()
+      }}
+    >
+      <IconPencil size={14} />
+      编辑配置
     </button>
   )
 
@@ -1397,6 +1552,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                 </button>
                 {menuOpen && (
                   <span className="dshc-menu" role="menu" onClick={event => event.stopPropagation()}>
+                    {editItem}
                     {deleteItem}
                   </span>
                 )}
@@ -1404,9 +1560,9 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
             )}
             <button
               type="button"
-              className={installing ? `${actionClass} dshc-card-action-loading` : actionClass}
-              title={installing ? '安装中…' : '安装'}
-              aria-label={installing ? `正在安装 ${card.name}` : `安装 ${card.name}`}
+              className={installActionClass}
+              title={installLabel}
+              aria-label={installing ? `正在安装 ${card.name}` : `${installLabel} ${card.name}`}
               disabled={installing}
               onClick={event => {
                 event.stopPropagation()
@@ -1450,6 +1606,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
               </button>
               {menuOpen && (
                 <span className="dshc-menu" role="menu" onClick={event => event.stopPropagation()}>
+                  {reconfigureItem}
+                  {editItem}
                   {disconnectItem}
                   {deleteItem}
                 </span>
@@ -1523,6 +1681,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                         重新授权
                       </button>
                     )}
+                    {reconfigureItem}
                     {onRevoke !== undefined && (
                       <button
                         type="button"
@@ -1537,6 +1696,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                         取消授权
                       </button>
                     )}
+                    {editItem}
                     {disconnectItem}
                     {deleteItem}
                   </span>
@@ -1592,6 +1752,7 @@ interface ConnectorDialogProps {
   onConfigureInstance: (instanceUrl: string) => void
   onAuthorize: () => void
   onReauthorize: () => void
+  onReconfigureInstance?: () => void
   onUpdateCredential: () => void
   onCancelAuthorize: () => void
   onTryExample: (example: string) => void
@@ -1599,9 +1760,10 @@ interface ConnectorDialogProps {
   onDisconnect: () => void
   onToggle: (enabled: boolean) => void
   onDelete?: () => void
+  onEditCustom?: () => void
 }
 
-function ConnectorDialog({ card, connection, pending, toggling, authorizing, authorizeLink, installOpen, error, behind = false, escLocked = false, onClose, onBeginInstall, onCancelInstall, onConnect, onInstallOAuth, onConfigureInstance, onAuthorize, onReauthorize, onUpdateCredential, onCancelAuthorize, onTryExample, onRevoke, onDisconnect, onToggle, onDelete }: ConnectorDialogProps): JSX.Element {
+function ConnectorDialog({ card, connection, pending, toggling, authorizing, authorizeLink, installOpen, error, behind = false, escLocked = false, onClose, onBeginInstall, onCancelInstall, onConnect, onInstallOAuth, onConfigureInstance, onAuthorize, onReauthorize, onReconfigureInstance, onUpdateCredential, onCancelAuthorize, onTryExample, onRevoke, onDisconnect, onToggle, onDelete, onEditCustom }: ConnectorDialogProps): JSX.Element {
   const [token, setToken] = useState('')
   const [tokenVisible, setTokenVisible] = useState(false)
   const [instanceUrl, setInstanceUrl] = useState('')
@@ -1653,7 +1815,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !busy && !escLocked) onClose()
+      if (event.key === 'Escape' && !escLocked) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1715,7 +1877,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
     <div
       className={behind ? 'dshc-overlay dshc-overlay-behind' : 'dshc-overlay'}
       onMouseDown={event => {
-        if (event.target === event.currentTarget && !busy) onClose()
+        if (event.target === event.currentTarget) onClose()
       }}
     >
       <div className="dshc-dialog dshc-dialog-detail" role="dialog" aria-modal="true" aria-label={card.name}>
@@ -1726,7 +1888,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
             <span>{[card.vendor, card.category].filter(Boolean).join(' · ')}</span>
           </div>
           <span className={`${statusClass} dshc-dialog-status-pill`}>{statusText}</span>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" disabled={busy} onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
@@ -1931,6 +2093,16 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
               删除
             </button>
           )}
+          {onEditCustom !== undefined && !authorizing && (
+            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onEditCustom}>
+              编辑配置
+            </button>
+          )}
+          {onReconfigureInstance !== undefined && connection !== undefined && !authorizing && (
+            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onReconfigureInstance}>
+              更换实例
+            </button>
+          )}
           {oauth && connection?.authorized === true && !authorizing && (
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onRevoke}>
               取消授权
@@ -2084,7 +2256,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
             )}
             {connection === undefined && !showingInstall && (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={busy} onClick={onClose}>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
                   关闭
                 </button>
                 <button
@@ -2112,6 +2284,99 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
         </div>,
         document.body,
       )}
+    </div>
+  )
+}
+
+interface InstanceDialogProps {
+  card: ConnectorCard
+  pending: boolean
+  error: string | null
+  onClose: () => void
+  onSubmit: (instanceUrl: string) => void
+}
+
+function InstanceDialog({ card, pending, error, onClose, onSubmit }: InstanceDialogProps): JSX.Element {
+  const [instanceUrl, setInstanceUrl] = useState('')
+  const instance = card.instance
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !pending) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, pending])
+
+  const submit = (): void => {
+    if (pending || instanceUrl.trim() === '') return
+    onSubmit(instanceUrl.trim())
+  }
+
+  return (
+    <div
+      className="dshc-overlay"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget && !pending) onClose()
+      }}
+    >
+      <form
+        className="dshc-dialog dshc-dialog-instance"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`更换 ${card.name} 实例`}
+        noValidate
+        onSubmit={event => {
+          event.preventDefault()
+          submit()
+        }}
+      >
+        <div className="dshc-dialog-head">
+          <span className="dshc-dialog-avatar"><ConnectorLogo card={card} size={28} /></span>
+          <div className="dshc-dialog-title">
+            <h2>更换实例</h2>
+            <span>{card.name}</span>
+          </div>
+          <button type="button" className="dshc-icon-btn" aria-label="关闭" disabled={pending} onClick={onClose}>
+            <IconClose size={16} />
+          </button>
+        </div>
+        <div className="dshc-dialog-content">
+          <p className="dshc-dialog-hint">更换后会断开当前连接、清除授权，并在新实例重新授权。</p>
+          <label className="dshc-field">
+            <span>{instance?.label ?? '实例地址'}</span>
+            <input
+              autoFocus
+              type="url"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={instance?.placeholder ?? 'https://gitlab.example.com'}
+              value={instanceUrl}
+              onChange={event => setInstanceUrl(event.target.value)}
+            />
+          </label>
+          {instance?.hint !== undefined && <p className="dshc-dialog-hint">{instance.hint}</p>}
+          {instanceUrl.trim().startsWith('http://') && (
+            <p className="dshc-dialog-hint">非 https 地址会明文传输，请确认网络可信。</p>
+          )}
+          {error !== null && <p className="dshc-dialog-error">{error}</p>}
+        </div>
+        <div className="dshc-dialog-actions">
+          <span className="dshc-dialog-actions-right">
+            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={pending} onClick={onClose}>
+              取消
+            </button>
+            <button
+              type="submit"
+              className="dshc-btn dshc-btn-md dshc-btn-primary"
+              disabled={pending || instanceUrl.trim() === ''}
+            >
+              {pending && <Spinner />}
+              {pending ? '更换中…' : '更换并授权'}
+            </button>
+          </span>
+        </div>
+      </form>
     </div>
   )
 }
@@ -2224,14 +2489,21 @@ function CredentialDialog({ card, saving, error, onClose, onSubmit }: Credential
   )
 }
 
+interface CustomEditInfo {
+  connectorId: string
+  initial: CustomConfigView
+}
+
 interface CustomDialogProps {
   onClose: () => void
   categoryOptions: string[]
   onImported: (connectors: ConnectorCard[], connectNow: boolean) => void
+  editing?: CustomEditInfo
+  onEdited?: (result: CustomUpdatePayload['value']) => void
 }
 
-function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomDialogProps): JSX.Element {
-  const [json, setJson] = useState('')
+function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, onEdited }: CustomDialogProps): JSX.Element {
+  const [json, setJson] = useState(editing?.initial.json ?? '')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
   const [examples, setExamples] = useState('')
@@ -2298,6 +2570,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomD
   const jsonMeta = parsedJson.meta
   const hasJsonMeta = jsonMeta !== null
     && (jsonMeta.description !== undefined || jsonMeta.category !== undefined || jsonMeta.examples !== undefined)
+  const previewMeta = jsonMeta
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -2371,15 +2644,24 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomD
     const exampleLines = parseExampleLines(examples)
     void (async () => {
       try {
+        const body = JSON.stringify({
+          json,
+          allowPrivate: privateWarning,
+          ...(description.trim() === '' ? {} : { description: description.trim() }),
+          ...(category.trim() === '' ? {} : { category: category.trim() }),
+          ...(exampleLines.length === 0 ? {} : { examples: exampleLines }),
+        })
+        if (editing !== undefined) {
+          const response = await request<CustomUpdatePayload>(
+            `${ROUTE_PREFIX}/api/custom-connectors/${encodeURIComponent(editing.connectorId)}`,
+            { method: 'PUT', body },
+          )
+          onEdited?.(response.value)
+          return
+        }
         const response = await request<CustomConnectorsPayload>(`${ROUTE_PREFIX}/api/custom-connectors`, {
           method: 'POST',
-          body: JSON.stringify({
-            json,
-            allowPrivate: privateWarning,
-            ...(description.trim() === '' ? {} : { description: description.trim() }),
-            ...(category.trim() === '' ? {} : { category: category.trim() }),
-            ...(exampleLines.length === 0 ? {} : { examples: exampleLines }),
-          }),
+          body,
         })
         onImported(response.value.connectors, connectNow)
         onClose()
@@ -2408,22 +2690,32 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomD
         className="dshc-dialog dshc-dialog-wide"
         role="dialog"
         aria-modal="true"
-        aria-label="自定义连接器"
+        aria-label={editing === undefined ? '自定义连接器' : '编辑连接器配置'}
         onSubmit={event => {
           event.preventDefault()
-          if (!pending && json.trim() !== '' && (!privateWarning || privateConfirmed)) {
-            submit(serverCount === 1)
+          if (pending || json.trim() === '' || (privateWarning && !privateConfirmed)) return
+          if (editing !== undefined) {
+            if (serverCount === 1) submit(false)
+            return
           }
+          submit(serverCount === 1)
         }}
       >
         <div className="dshc-dialog-head">
-          <h2>自定义连接器</h2>
+          <h2>{editing === undefined ? '自定义连接器' : '编辑配置'}</h2>
           <button type="button" className="dshc-icon-btn" aria-label="关闭" disabled={pending} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
         <div className="dshc-dialog-content">
-          <p className="dshc-dialog-body">粘贴 mcpServers JSON，支持 Streamable HTTP 与 stdio 两类 MCP Server。</p>
+          {editing === undefined && (
+            <p className="dshc-dialog-body">粘贴 mcpServers JSON，支持 Streamable HTTP 与 stdio 两类 MCP Server。</p>
+          )}
+          {editing?.initial.installed === true && (
+            <p className="dshc-dialog-hint">
+              当前已安装；如修改地址、命令、请求头或环境变量，保存后会断开连接，需要重新安装。
+            </p>
+          )}
           <div className="dshc-field">
             <span className="dshc-field-label">
               <span>mcpServers JSON</span>
@@ -2452,6 +2744,11 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomD
               }}
             />
           </div>
+          {editing !== undefined && (
+            <p className="dshc-dialog-hint">
+              修改会保存到本机；密钥与 URL 查询参数不会回显，保持 {CUSTOM_SECRET_PLACEHOLDER} 会沿用原值。
+            </p>
+          )}
           {hasJsonMeta && (
             <p className="dshc-dialog-hint">已读取 JSON 中的 x-dsh；下方留空就使用它，填写会覆盖。</p>
           )}
@@ -2460,9 +2757,9 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomD
             <input
               autoComplete="off"
               maxLength={120}
-              placeholder={jsonMeta?.description === undefined
+              placeholder={previewMeta?.description === undefined
                 ? '例如：通过 DeepWiki 查询仓库结构与文档'
-                : `JSON 中：${jsonMeta.description}`}
+                : `JSON 中：${previewMeta.description}`}
               value={description}
               onChange={event => setDescription(event.target.value)}
             />
@@ -2476,7 +2773,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomD
                 <input
                   ref={categoryInputRef}
                   autoComplete="off"
-                  placeholder={jsonMeta?.category === undefined ? '默认：其他' : `JSON 中：${jsonMeta.category}`}
+                  placeholder={previewMeta?.category === undefined ? '默认：其他' : `JSON 中：${previewMeta.category}`}
                   value={category}
                   aria-expanded={categoryOpen}
                   onFocus={openCategoryMenu}
@@ -2506,7 +2803,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomD
               </div>
             </div>
             <p className="dshc-dialog-hint">
-              {jsonMeta?.category === undefined
+              {previewMeta?.category === undefined
                 ? '留空会归入「其他」；可直接输入新类别。'
                 : '留空使用 JSON 中的类别；填写会覆盖。'}
             </p>
@@ -2516,17 +2813,22 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomD
             <textarea
               className="dshc-examples-input"
               spellCheck={false}
-              placeholder={jsonMeta?.examples === undefined
+              placeholder={previewMeta?.examples === undefined
                 ? '用 DeepWiki 查一下 facebook/react 的仓库结构'
-                : `JSON 中：\n${jsonMeta.examples.join('\n')}`}
+                : `JSON 中：\n${previewMeta.examples.join('\n')}`}
               value={examples}
               onChange={event => setExamples(event.target.value)}
             />
           </label>
-          {serverCount > 1 && (
+          {editing === undefined && serverCount > 1 && (
             <p className="dshc-warning">
               检测到 {serverCount} 个 Server；多 Server 请用「仅导入」，导入后分别连接。
               填写下方描述、类别、示例会覆盖所有 Server；留空则各 Server 使用自己的 x-dsh。
+            </p>
+          )}
+          {editing !== undefined && json.trim() !== '' && serverCount !== 1 && (
+            <p className="dshc-warning">
+              编辑时只能保留一个 Server，当前检测到 {serverCount} 个。
             </p>
           )}
           {privateWarning && (
@@ -2548,21 +2850,34 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomD
           <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={pending} onClick={onClose}>
             取消
           </button>
-          <button
-            type="button"
-            className="dshc-btn dshc-btn-md dshc-btn-outline"
-            disabled={pending || json.trim() === '' || (privateWarning && !privateConfirmed)}
-            onClick={() => submit(false)}
-          >
-            {privateWarning ? '仍然仅导入' : '仅导入'}
-          </button>
-          <button
-            type="submit"
-            className="dshc-btn dshc-btn-md dshc-btn-primary"
-            disabled={pending || json.trim() === '' || serverCount !== 1 || (privateWarning && !privateConfirmed)}
-          >
-            {pending ? '导入中…' : privateWarning ? '仍然导入并连接' : '导入并连接'}
-          </button>
+          {editing === undefined ? (
+            <>
+              <button
+                type="button"
+                className="dshc-btn dshc-btn-md dshc-btn-outline"
+                disabled={pending || json.trim() === '' || (privateWarning && !privateConfirmed)}
+                onClick={() => submit(false)}
+              >
+                {privateWarning ? '仍然仅导入' : '仅导入'}
+              </button>
+              <button
+                type="submit"
+                className="dshc-btn dshc-btn-md dshc-btn-primary"
+                disabled={pending || json.trim() === '' || serverCount !== 1 || (privateWarning && !privateConfirmed)}
+              >
+                {pending ? '导入中…' : privateWarning ? '仍然导入并连接' : '导入并连接'}
+              </button>
+            </>
+          ) : (
+            <button
+              type="submit"
+              className="dshc-btn dshc-btn-md dshc-btn-primary"
+              disabled={pending || json.trim() === '' || serverCount !== 1 || (privateWarning && !privateConfirmed)}
+            >
+              {pending && <Spinner />}
+              {pending ? '保存中…' : '保存'}
+            </button>
+          )}
         </div>
       </form>
       {categoryOpen && categoryMenu !== null && createPortal(
@@ -2828,6 +3143,7 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-dialog{box-sizing:border-box;position:relative;z-index:1;display:flex;flex-direction:column;gap:20px;width:min(380px,100%);max-height:min(800px,100%);padding:0 0 24px;overflow:hidden;border:0;border-radius:var(--dsw-radius-panel);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-elevation-prominent)}
 .dshc-dialog-detail,.dshc-dialog-wide{width:min(560px,100%)}
 .dshc-dialog-credential{width:min(460px,100%)}
+.dshc-dialog-instance{width:min(460px,100%)}
 .dshc-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:22px 14px 12px 24px}
 .dshc-dialog-head-detail{gap:12px}
 .dshc-dialog-head h2{margin:0;font-size:16px;font-weight:500;line-height:24px}

@@ -129,10 +129,11 @@ npm run check        # typecheck + build + provider/instance 校验与测试
 - 导入弹窗提供「描述」「类别」「示例提示词（每行一条）」；单个 Server 的 `x-dsh` 会以占位提示展示，表单留空时使用 `x-dsh`，填写则覆盖。多 Server 时填写表单会覆盖所有 Server 的 `x-dsh`，留空则各 Server 使用自己的值。描述与示例均可留空。
 - 类别可输入新名称，内置类别与同名自定义类别会合并；`全部`、`自定义` 为保留名，来源仍用「自定义」badge 表示。
 - 主按钮「导入并连接」只对单个 server 自动安装并连接；多个 server 时请用「仅导入」，导入后分别连接。
-- 自定义卡片在未安装态可从「更多」直接删除；已连接时「更多」提供「断开」与「删除」：断开只移除连接和工具、保留连接器定义，删除会一并清理连接记录、loader 条目和连接器定义。详情弹窗内同样保留这两个入口。
+- 自定义卡片在未安装态可从「更多」直接删除；已连接时「更多」提供「编辑配置」「断开」与「删除」：断开只移除连接和工具、保留连接器定义，删除会一并清理连接记录、loader 条目和连接器定义。详情弹窗内同样保留这些入口。
+- 「编辑配置」会读取当前配置并以 JSON 编辑；描述、类别、示例与新增态一致，以 JSON 的 `x-dsh` 为默认值，表单留空即沿用、填写覆盖。`headers` / `env` 的值与 URL 查询参数用 `<已保存>` 占位，不回显；保持占位会沿用原值，填写新值则替换。`serverName` 不允许修改。修改地址、命令、请求头或环境变量会断开已有连接，保存后需重新安装；仅修改描述、类别、示例不会断开。
 - 没有示例的卡片不再显示负向提示，「试试这样用」整节直接隐藏。
 - `serverName` 只允许 1–32 位字母、数字、下划线或短横线，且不能与内置或已有自定义连接冲突。
-- `url` 与 `command` 二选一；`headers` / `env` 的值只保存在宿主侧 storage domain，目录与连接接口不回传。
+- `url` 与 `command` 二选一；`headers` / `env` 的值只保存在宿主侧 storage domain，目录与连接接口不回传；编辑配置接口只返回占位值。
 - `localhost`、内网 IP、`.local` / `.internal` 地址首次提交返回 `private_url_confirmation`，面板勾选确认后重试。
 - stdio 会在本机启动命令，只应导入可信配置；连接后工具以 `mcp__<serverName>__*` 注册。
 - 工具探测：HTTP 与 stdio 均最多等待 30 秒；GitLab.com 的 initialize + tools/list 实测可达 15 秒，超时按连接失败处理并删除 loader 条目。启用失败时错误写入连接记录，卡片内展示，页面顶部不再出现错误条。
@@ -155,7 +156,8 @@ npm run check        # typecheck + build + provider/instance 校验与测试
 - 地址支持 `https`、`http` 与内网 IP；http 会在表单里提示明文传输风险。地址为空时「配置并授权」禁用。
 - 地址解析规则：必须显式带 `http://` 或 `https://`；禁止 URL 内嵌账号密码、query、hash；允许带子路径；末尾 `/` 自动去掉；若粘贴了完整的 `/api/v4/mcp` 也会规范化为实例基地址。
 - 提交地址后 `POST /api/connections {connectorId, instanceUrl}` 补写记录 URL，`instanceReady=true`，随后自动发起 OAuth。授权、刷新与重启都使用记录里的地址。
-- 关闭授权弹窗或取消授权后，记录保持安装：已配置地址时直接显示「授权」；未配置时再次打开弹窗继续填地址。换实例在已配置后需删除重装。
+- 关闭授权弹窗或取消授权后，记录保持安装：已配置地址时直接显示「授权」；未配置时再次打开弹窗继续填地址。
+- 已配置地址后，卡片「更多」和详情弹窗都提供「更换实例」：填写新地址后会断开当前连接、清除旧授权并直接发起新实例授权；取消新授权时保留新地址的「已安装未授权」状态。更换实例不再需要删除重装。
 - 实例必须支持 MCP 端点与 OAuth 动态客户端注册（DCR）；缺少 DCR 会明确报错，不回退 PAT。旧实例或不支持 DCR 的场景使用自定义连接器。
 
 ## GitHub PAT
@@ -180,8 +182,9 @@ npm run check        # typecheck + build
 - `GET /dsh-connectors/api/health` — 版本与宿主能力（tools / storageDomain / loader / webServer）
 - `GET /dsh-connectors/api/catalog` — 内置 + 自定义连接器目录（自定义卡片不含 url / headers / env）
 - `GET /dsh-connectors/api/connections` — 已配置连接与实时工具数量
-- `POST /dsh-connectors/api/connections` — `{ connectorId, token? }`；令牌 / 无凭据卡片直接连接，OAuth 卡片只安装并返回 `authorized=false` 的连接视图
+- `POST /dsh-connectors/api/connections` — `{ connectorId, token?, instanceUrl? }`；令牌 / 无凭据卡片直接连接，OAuth 卡片只安装并返回 `authorized=false` 的连接视图
 - `PATCH /dsh-connectors/api/connections/:connectorId` — `{ enabled }`；停用只移除 loader 条目、保留配置与凭据，启用时重建并重新探测工具
+- `POST /dsh-connectors/api/connections/:connectorId/instance` — `{ instanceUrl }`；更换自建实例地址：清除旧授权与 loader 条目，更新记录 URL，返回未授权连接
 - `DELETE /dsh-connectors/api/connections/:connectorId` — 断开并卸载连接，移除 loader 条目与记录
 - `POST /dsh-connectors/api/oauth/start` — `{ connectorId, redirectUri }`，要求已安装；返回 `{ authorizeUrl, flowId, opened }`，并打开系统默认浏览器
 - `GET /dsh-connectors/api/oauth/status?flowId=` — 返回授权流程状态 `pending / done / error / expired`
@@ -189,6 +192,8 @@ npm run check        # typecheck + build
 - `GET /dsh-connectors/api/oauth/callback` — GitLab 授权回调；完成 token 交换、建连与工具探测，返回结果页
 - `DELETE /dsh-connectors/api/connections/:connectorId/oauth` — 取消授权：清空 token、移除 loader 条目，保留安装记录
 - `POST /dsh-connectors/api/custom-connectors` — `{ json, allowPrivate?, description?, category?, examples? }`，导入一个或多个自定义 MCP Server；非空的批量 description/category/examples 覆盖 `x-dsh`，留空则使用 `x-dsh`
+- `GET /dsh-connectors/api/custom-connectors/:connectorId/config` — 返回可编辑的单个 Server JSON；`headers` / `env` 值与 URL 查询参数替换为 `<已保存>`
+- `PUT /dsh-connectors/api/custom-connectors/:connectorId` — 更新自定义连接器；占位值沿用原密钥，编辑时不允许改 `serverName`；连接字段变化会断开已安装连接并返回 `disconnected: true`
 - `DELETE /dsh-connectors/api/custom-connectors/:connectorId` — 删除自定义连接器；若已连接会先注销工具并删除连接记录
 
 ## 依赖边界

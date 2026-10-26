@@ -167,6 +167,31 @@ export function IconHelp({ size = 14, className }: IconProps): JSX.Element {
   )
 }
 
+export function IconServer({ size = 16, className }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="2.5" y="2.5" width="11" height="4.75" rx="1.25" stroke="currentColor" strokeWidth="1" />
+      <rect x="2.5" y="8.75" width="11" height="4.75" rx="1.25" stroke="currentColor" strokeWidth="1" />
+      <circle cx="5" cy="4.875" r=".75" fill="currentColor" />
+      <circle cx="5" cy="11.125" r=".75" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function IconPencil({ size = 16, className }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M10.6 2.9a1.35 1.35 0 0 1 1.9 0l.6.6a1.35 1.35 0 0 1 0 1.9L6.2 12.2l-3 .8.8-3 6.6-6.6Z"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+      <path d="M9.5 4L12 6.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function IconEyeOff({ size = 16, className }: IconProps): JSX.Element {
   return (
     <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
