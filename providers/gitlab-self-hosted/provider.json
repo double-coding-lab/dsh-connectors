@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "gitlab-self-hosted",
+  "name": "GitLab 自建",
+  "vendor": "GitLab",
+  "category": "开发工具",
+  "summary": "填写自建 GitLab 实例地址，使用 OAuth 接入官方 MCP。",
+  "description": "连接自建 GitLab 实例的官方 MCP 服务。实例需支持 MCP 端点与 OAuth 动态客户端注册；点击安装后在浏览器完成授权，令牌只保存在本机。",
+  "examples": [
+    "查看 group/project 的开放合并请求，按更新时间排序",
+    "总结 group/project 最近的 Issue 和负责人",
+    "给合并请求 !123 添加一条评论，说明本地测试结果",
+    "查看当前项目的流水线状态，失败时给出原因"
+  ],
+  "tags": ["代码托管", "自建实例"],
+  "order": 55,
+  "instance": {
+    "label": "GitLab 实例地址",
+    "placeholder": "https://gitlab.example.com",
+    "hint": "可填写带子路径的地址，例如 https://example.com/gitlab；不要填写 /api/v4/mcp。"
+  },
+  "server": {
+    "serverName": "gitlab-self-hosted",
+    "transport": "streamable-http",
+    "url": "{instance}/api/v4/mcp"
+  },
+  "auth": {
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "scopes": ["mcp"],
+    "clientName": "DSH 连接器"
+  }
+}

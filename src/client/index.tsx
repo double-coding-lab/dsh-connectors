@@ -185,7 +185,7 @@ function shortToolName(name: string, serverName?: string): string {
   return name.startsWith(prefix) ? name.slice(prefix.length) : name
 }
 
-const OAUTH_TIMEOUT_MS = 3 * 60 * 1000
+const OAUTH_TIMEOUT_MS = 90 * 1000
 const OAUTH_POLL_MS = 1200
 
 function isOAuthCard(card: ConnectorCard): boolean {
@@ -289,6 +289,10 @@ async function authorizeConnector(
       throw new ApiError('oauth_expired', '授权已过期，请重试')
     }
     if (Date.now() >= deadline) {
+      await request(`${ROUTE_PREFIX}/api/oauth/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ flowId }),
+      }).catch(() => undefined)
       throw new ApiError('oauth_timeout', '授权超时，请重试')
     }
   }
@@ -746,7 +750,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
     return connection
   }
 
-  const installToken = (card: ConnectorCard, surface: 'dialog' | 'page'): void => {
+  const installRecord = (card: ConnectorCard, surface: 'dialog' | 'page'): void => {
     setPending(card.id)
     if (surface === 'dialog') setDialogError(null)
     else clearCardError(card.id)
@@ -767,7 +771,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
     })()
   }
 
-  const runOAuth = (card: ConnectorCard, installFirst: boolean, surface: 'dialog' | 'page' = 'dialog', force = false): void => {
+  const runOAuth = (card: ConnectorCard, installFirst: boolean, surface: 'dialog' | 'page' = 'dialog', force = false, presetConnection?: ConnectionView): void => {
     const controller = new AbortController()
     oauthAbortRef.current = controller
     setOauthStarting(card.id)
@@ -776,11 +780,14 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
     else clearCardError(card.id)
     void (async () => {
       try {
-        let connection = connections[card.id]
-        if (installFirst || connection === undefined) {
+        let connection = presetConnection ?? connections[card.id]
+        if (presetConnection === undefined && (installFirst || connection === undefined)) {
           connection = await installConnector(card)
           applyConnection(connection)
           setDialogInstall(false)
+        }
+        if (connection === undefined) {
+          throw new ApiError('not_installed', '请先安装连接器，再发起授权')
         }
         if (force || !connection.authorized) {
           const authorized = await authorizeConnector(card, {
@@ -807,6 +814,28 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
         setOauthStarting(null)
         setOAuthFlow(null)
         oauthAbortRef.current = null
+      }
+    })()
+  }
+
+  const configureInstance = (card: ConnectorCard, instanceUrl: string): void => {
+    setPending(card.id)
+    setDialogError(null)
+    void (async () => {
+      try {
+        const response = await withInstallFeedback(request<ConnectResponse>(`${ROUTE_PREFIX}/api/connections`, {
+          method: 'POST',
+          body: JSON.stringify({ connectorId: card.id, instanceUrl }),
+        }))
+        const connection = response.value?.connection
+        if (connection === undefined) throw new ApiError('invalid_response', '安装失败：宿主没有返回连接')
+        applyConnection(connection)
+        setDialogInstall(false)
+        setPending(null)
+        runOAuth(card, false, 'dialog', false, connection)
+      } catch (cause) {
+        setDialogError(cause instanceof Error ? cause.message : String(cause))
+        setPending(null)
       }
     })()
   }
@@ -995,11 +1024,15 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                   onOpen={() => openDialog(card, false)}
                   onInstall={() => {
                     if (isOAuthCard(card)) {
+                      if (card.instance !== undefined) {
+                        installRecord(card, 'page')
+                        return
+                      }
                       runOAuth(card, true, 'page')
                       return
                     }
                     if (isTokenCard(card)) {
-                      installToken(card, 'page')
+                      installRecord(card, 'page')
                       return
                     }
                     if (card.auth.type === 'none') {
@@ -1009,8 +1042,15 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                     openDialog(card, true)
                   }}
                   onAuthorize={() => {
-                    if (isOAuthCard(card)) runOAuth(card, false, 'page')
-                    else openDialog(card, false)
+                    if (isOAuthCard(card)) {
+                      if (card.instance !== undefined && connections[card.id]?.instanceReady !== true) {
+                        openDialog(card, false)
+                        return
+                      }
+                      runOAuth(card, false, 'page')
+                      return
+                    }
+                    openDialog(card, false)
                   }}
                   onCancelAuthorize={cancelAuthorize}
                   onUpdateCredential={isTokenCard(card) && connections[card.id]?.authorized === true
@@ -1044,7 +1084,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
           pending={pending === dialogCard.id}
           toggling={togglePending === dialogCard.id}
           authorizing={isAuthorizing(dialogCard)}
-          authorizeLink={oauthFlow?.connectorId === dialogCard.id && !oauthFlow.opened ? oauthFlow.authorizeUrl : null}
+          authorizeLink={oauthFlow?.connectorId === dialogCard.id ? oauthFlow.authorizeUrl : null}
           installOpen={dialogInstall}
           error={dialogError}
           behind={credentialCard !== null || deleteCard !== null}
@@ -1057,8 +1097,8 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
             }
           }}
           onBeginInstall={() => {
-            if (isTokenCard(dialogCard)) {
-              installToken(dialogCard, 'dialog')
+            if (isTokenCard(dialogCard) || dialogCard.instance !== undefined) {
+              installRecord(dialogCard, 'dialog')
               return
             }
             setDialogError(null)
@@ -1070,6 +1110,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
           }}
           onConnect={token => connect(dialogCard, token)}
           onInstallOAuth={() => runOAuth(dialogCard, true)}
+          onConfigureInstance={instanceUrl => configureInstance(dialogCard, instanceUrl)}
           onAuthorize={() => runOAuth(dialogCard, false)}
           onReauthorize={() => runOAuth(dialogCard, false, 'dialog', true)}
           onUpdateCredential={() => openCredentialDialog(dialogCard)}
@@ -1498,6 +1539,7 @@ interface ConnectorDialogProps {
   onCancelInstall: () => void
   onConnect: (token?: string) => Promise<boolean>
   onInstallOAuth: () => void
+  onConfigureInstance: (instanceUrl: string) => void
   onAuthorize: () => void
   onReauthorize: () => void
   onUpdateCredential: () => void
@@ -1509,9 +1551,10 @@ interface ConnectorDialogProps {
   onDelete?: () => void
 }
 
-function ConnectorDialog({ card, connection, pending, toggling, authorizing, authorizeLink, installOpen, error, behind = false, escLocked = false, onClose, onBeginInstall, onCancelInstall, onConnect, onInstallOAuth, onAuthorize, onReauthorize, onUpdateCredential, onCancelAuthorize, onTryExample, onRevoke, onDisconnect, onToggle, onDelete }: ConnectorDialogProps): JSX.Element {
+function ConnectorDialog({ card, connection, pending, toggling, authorizing, authorizeLink, installOpen, error, behind = false, escLocked = false, onClose, onBeginInstall, onCancelInstall, onConnect, onInstallOAuth, onConfigureInstance, onAuthorize, onReauthorize, onUpdateCredential, onCancelAuthorize, onTryExample, onRevoke, onDisconnect, onToggle, onDelete }: ConnectorDialogProps): JSX.Element {
   const [token, setToken] = useState('')
   const [tokenVisible, setTokenVisible] = useState(false)
+  const [instanceUrl, setInstanceUrl] = useState('')
   const [copied, setCopied] = useState<number | null>(null)
   const [copyFailed, setCopyFailed] = useState<number | null>(null)
   const [showAllTools, setShowAllTools] = useState(false)
@@ -1533,7 +1576,12 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
   const canTry = connected && toolDetails.length > 0
   const visibleTools = showAllTools ? toolDetails : toolDetails.slice(0, 4)
   const examples = card.examples ?? []
-  const showingInstall = installOpen && connection === undefined && !needsToken
+  const instance = card.instance
+  const showingInstall = installOpen && instance === undefined && connection === undefined && !needsToken
+  const needsInstanceConfig = instance !== undefined
+    && connection !== undefined
+    && !connection.authorized
+    && connection.instanceReady !== true
   const failedWithToken = needsToken && connection !== undefined && connection.authorized && connection.error !== undefined
   const tokenEntry = needsToken && connection !== undefined && (!connection.authorized || connection.error !== undefined)
   const busy = pending || toggling
@@ -1546,6 +1594,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
   useEffect(() => {
     setToken('')
     setTokenVisible(false)
+    setInstanceUrl('')
     setCopied(null)
     setCopyFailed(null)
     setShowAllTools(false)
@@ -1636,6 +1685,34 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
           <p className="dshc-dialog-body">{card.description ?? card.summary}</p>
           {connection?.error !== undefined && <p className="dshc-dialog-error">{connection.error}</p>}
 
+          {needsInstanceConfig && instance !== undefined && (
+            <div className="dshc-field">
+              <label htmlFor="dshc-instance-url">{instance.label}</label>
+              <input
+                id="dshc-instance-url"
+                type="url"
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={instance.placeholder ?? 'https://gitlab.example.com'}
+                value={instanceUrl}
+                onChange={event => setInstanceUrl(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' && !pending && instanceUrl.trim() !== '') {
+                    event.preventDefault()
+                    onConfigureInstance(instanceUrl.trim())
+                  }
+                }}
+              />
+            </div>
+          )}
+          {needsInstanceConfig && instance?.hint !== undefined && (
+            <p className="dshc-dialog-hint">{instance.hint}</p>
+          )}
+          {needsInstanceConfig && instanceUrl.trim().startsWith('http://') && (
+            <p className="dshc-dialog-hint">非 https 地址会明文传输，请确认网络可信。</p>
+          )}
+
           {needsToken && tokenEntry && (
             <div className="dshc-field">
               <label htmlFor="dshc-token-input">{tokenLabel(card)}</label>
@@ -1683,8 +1760,10 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
           {oauth && unauthorized && (
             <p className="dshc-dialog-hint">
               {authorizing
-                ? '已打开授权页，完成授权后会自动同步。'
-                : `已安装，点击授权后在浏览器完成 ${card.name} 授权。`}
+                ? '已打开授权页，完成授权后会自动同步；如已关闭授权页，请点「取消授权」后重试。'
+                : needsInstanceConfig
+                  ? '已安装，填写实例地址后开始授权。'
+                  : `已安装，点击授权后在浏览器完成 ${card.name} 授权。`}
             </p>
           )}
           {authorizeLink !== null && authorizing && (
@@ -1841,9 +1920,21 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                     {removeLabel}
                   </button>
                   {oauth ? (
-                    <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onAuthorize}>
-                      授权 {card.name}
-                    </button>
+                    needsInstanceConfig ? (
+                      <button
+                        type="button"
+                        className="dshc-btn dshc-btn-md dshc-btn-primary"
+                        disabled={busy || instanceUrl.trim() === ''}
+                        onClick={() => onConfigureInstance(instanceUrl.trim())}
+                      >
+                        {pending && <span className="dshc-spinner" aria-hidden />}
+                        {pending ? '配置中…' : '配置并授权'}
+                      </button>
+                    ) : (
+                      <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onAuthorize}>
+                        授权 {card.name}
+                      </button>
+                    )
                   ) : (
                     <button
                       type="button"

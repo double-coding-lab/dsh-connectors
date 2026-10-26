@@ -7,7 +7,7 @@ export function openExternal(url: string): Promise<boolean> {
   } catch {
     return Promise.resolve(false)
   }
-  if (target.protocol !== 'https:') return Promise.resolve(false)
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') return Promise.resolve(false)
 
   let command: string
   let args: string[]

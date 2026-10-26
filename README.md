@@ -6,7 +6,7 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 
 已完成：
 
-- 插件骨架、侧栏面板、内置目录（GitHub / Linear / Neon / Supabase / GitLab.com / Context7）、搜索与分类。
+- 插件骨架、侧栏面板、内置目录（GitHub / Linear / Neon / Supabase / GitLab.com / GitLab 自建 / Context7）、搜索与分类。
 - Provider 数据化：新增 provider 只需 `providers/<id>/provider.json`（可选 `icon.svg`），OAuth 也由数据描述驱动，无厂商分支；契约与贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 内置连接器安装/删除、凭据本机存储、重启后恢复、工具数量展示。
 - 内置 token 型 provider：Linear（API Key，项目管理）、Neon / Supabase（API Key / PAT，数据库）；安装只写记录，随后在授权表单输入 token；关闭表单后卡片保留「授权」+ 已安装对勾。令牌输入框默认隐藏内容，右侧眼睛按钮可切换明文/密文，切换不改变已输入内容。
@@ -33,7 +33,7 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 - 「去试试」新建会话并预填示例，不自动发送；通过 `clearPreviousDraft` 替换旧草稿。复制与去试试使用同一份提示词：示例未包含连接器名时自动加「使用 <名称>：」前缀。未连接 / 停用 / 无工具时，示例里的去试试与菜单一起置灰。
 - 「试试这样用」每行右侧是两个图标按钮（复制 / 去试试），不显示文字，悬停显示深色 tooltip；整行不可点击。
 
-- GitLab.com 使用官方 MCP（`https://gitlab.com/api/v4/mcp`）。安装只写入连接记录、不建 loader 条目；授权时由宿主打开系统默认浏览器，走动态客户端注册 + PKCE S256，授权回调在宿主侧完成；access token、refresh token 与客户端信息只存本机，并在过期前自动刷新。内网 GitLab 待运维升级到 19.5 后再作为独立连接器加入。
+- GitLab.com 使用官方 MCP（`https://gitlab.com/api/v4/mcp`）。安装只写入连接记录、不建 loader 条目；授权时由宿主打开系统默认浏览器，走动态客户端注册 + PKCE S256，授权回调在宿主侧完成；access token、refresh token 与客户端信息只存本机，并在过期前自动刷新。自建实例见「GitLab 自建」。
 
 未完成：内网 GitLab 接入、多字段凭据 UI、远程目录；GitHub OAuth / device flow 作为后续可选。
 
@@ -60,7 +60,7 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 - 侧栏图标：连接器入口改为插头 SVG（3 条 path：两脚、插头体、线缆），与「插件」pinwheel 区分。
 - GitHub PAT：卡片目录为 `auth.type=bearer`；加号/详情安装只写记录并弹出 token 授权表单；空 token 时「连接」禁用。填入假 token 后连接超时并显示凭据错误，未落记录；真实 PAT 已连接并注册 46 个工具。已连接失败时的「重新连接」+ 空白 token 输入为同一套 `tokenEntry` 分支。
 - 安装/授权分离（token）：Linear 详情「安装」后卡片变为「未授权」+「授权」+已安装对勾，弹窗显示 `Linear API Key` 表单；关闭并刷新后仍是「授权/未授权」，不再显示「安装」。Neon 加号同样直接安装并弹出授权表单；测试记录已删除。
-- 目录：6 张内置卡（GitHub / Linear / Neon / Supabase / GitLab.com / Context7），分类新增「项目管理」「数据库」；Linear 安装步骤显示 `Linear API Key`、创建链接与权限提示，Neon / Supabase 复用同一结构。provider 改为按目录组织，OAuth 走通用元数据 + DCR/静态 clientId。
+- 目录：7 张内置卡（GitHub / Linear / Neon / Supabase / GitLab.com / GitLab 自建 / Context7），分类新增「项目管理」「数据库」；Linear 安装步骤显示 `Linear API Key`、创建链接与权限提示，Neon / Supabase 复用同一结构。provider 改为按目录组织，OAuth 走通用元数据 + DCR/静态 clientId。
 - GitLab.com OAuth：真实授权已完成，GitLab MCP 注册 36 个工具；`POST /api/oauth/start` 完成元数据发现、动态客户端注册并通过系统默认浏览器打开（`opened=true`）；取消授权后流程回到未授权。回调非法 state、provider 错误、非法 redirectUri 均返回 400 与错误页。
 
 ## 结构
@@ -94,7 +94,7 @@ scripts/new-provider.mjs          生成新 provider 骨架
 ```bash
 npm run provider:new -- acme --auth bearer --name "Acme"
 # 编辑 providers/acme/provider.json，放入可选 icon.svg
-npm run check
+npm run check        # typecheck + build + provider/instance 校验与测试
 ```
 
 契约、auth 类型、OAuth 注册方式和 PR 检查清单见 [CONTRIBUTING.md](CONTRIBUTING.md)。内置 provider 只接受数据描述与静态图标，不允许携带可执行代码；本地 stdio / 内网地址继续走「自定义连接器」。
@@ -132,12 +132,21 @@ npm run check
 - 卡片 `auth.type: oauth2`（`registration: dcr`）。安装与授权分离：`POST /api/connections` 只写入安装记录（`authorized=false`），不创建 loader 条目，也不探测工具。
 - 入口：卡片加号点击即安装并自动发起授权；详情「安装」走同样的安装后授权流程，但保留弹窗展示进度。已安装未授权时，卡片和详情显示「授权」，点击可再次发起。
 - 点授权后宿主读取 protected-resource / authorization-server 元数据、动态注册客户端并生成 PKCE S256 授权 URL，再调用系统默认浏览器打开（Windows `rundll32`、macOS `open`、Linux `xdg-open`）；已在运行的浏览器会新开一个标签页。
-- 面板每 1.2 秒轮询 `/api/oauth/status`；授权中卡片按钮变为「取消授权」，弹窗内同样可取消；宿主删除 pending state 并停止流程，记录保持安装但未授权。浏览器未自动打开时，弹窗展示手动授权链接。
+- 面板每 1.2 秒轮询 `/api/oauth/status`；授权中卡片按钮变为「取消授权」，弹窗内同样可取消；宿主删除 pending state 并停止流程，记录保持安装但未授权。浏览器未自动打开时，弹窗展示手动授权链接。客户端等待 90 秒无回调会自动取消流程并回到未授权。
 - 回调只接受本机地址（`127.0.0.1` / `localhost` / `[::1]`），state 10 分钟有效且一次性使用；token 交换成功后更新安装记录、创建 loader 条目并探测工具。
 - 记录只保留 `accessToken`、`refreshToken`、过期时间与客户端注册信息；视图、日志与错误文案都不回传 token。
 - 重启、重新启用时若 token 将在 60 秒内过期，会先用 refresh token 刷新并写回记录；未授权安装记录不参与 restore；刷新失败记录 `lastError`，需重新授权。
 - 回调已拿到 token 但工具注册失败时，连接保留为停用记录并写入错误；直接「启用」重试即可，不需要重新授权。
 - 「取消授权」清空 token、移除 loader 条目但保留安装记录，卡片回到「授权」；「删除」才是卸载并删除记录。GitLab 侧的客户端授权可在 GitLab 账号的 Applications 中撤销。
+
+## GitLab 自建
+
+- 卡片 `instance` + `auth.type: oauth2`（`registration: dcr`）。点加号或详情「安装」会先写入一条 `authorized=false` 的安装记录（此时 `url` 为空、`instanceReady=false`），再打开授权弹窗填写实例地址。
+- 地址支持 `https`、`http` 与内网 IP；http 会在表单里提示明文传输风险。地址为空时「配置并授权」禁用。
+- 地址解析规则：必须显式带 `http://` 或 `https://`；禁止 URL 内嵌账号密码、query、hash；允许带子路径；末尾 `/` 自动去掉；若粘贴了完整的 `/api/v4/mcp` 也会规范化为实例基地址。
+- 提交地址后 `POST /api/connections {connectorId, instanceUrl}` 补写记录 URL，`instanceReady=true`，随后自动发起 OAuth。授权、刷新与重启都使用记录里的地址。
+- 关闭授权弹窗或取消授权后，记录保持安装：已配置地址时直接显示「授权」；未配置时再次打开弹窗继续填地址。换实例在已配置后需删除重装。
+- 实例必须支持 MCP 端点与 OAuth 动态客户端注册（DCR）；缺少 DCR 会明确报错，不回退 PAT。旧实例或不支持 DCR 的场景使用自定义连接器。
 
 ## GitHub PAT
 

@@ -62,6 +62,26 @@
       "minimum": 0,
       "description": "目录排序，越小越靠前；缺省为 100。"
     },
+    "instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label"],
+      "description": "需要用户填写实例地址的 provider；存在时 server.url 必须使用 {instance} 模板。",
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "placeholder": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hint": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "server": {
       "type": "object",
       "additionalProperties": false,
@@ -78,9 +98,8 @@
         },
         "url": {
           "type": "string",
-          "format": "uri",
-          "pattern": "^https://",
-          "description": "必须是 https 地址。"
+          "minLength": 1,
+          "description": "无 instance 时必须是 https 地址；有 instance 时必须是以 {instance} 开头的模板，例如 {instance}/api/v4/mcp。"
         }
       }
     },
@@ -185,6 +204,35 @@
       ]
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "required": ["instance"]
+      },
+      "then": {
+        "properties": {
+          "server": {
+            "properties": {
+              "url": {
+                "pattern": "^\\{instance\\}(/.*)?$"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "server": {
+            "properties": {
+              "url": {
+                "pattern": "^https://"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "help": {
       "type": "object",

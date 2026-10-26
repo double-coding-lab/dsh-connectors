@@ -3,6 +3,7 @@ import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type { CardAuth, ConnectorCard, ConnectionView, ToolInfo } from '../shared/types.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
 import { ConnectError } from './errors.js'
+import { resolveInstanceMcpUrl } from './instanceUrl.js'
 import { assertPrivateUrlsAllowed, parseMcpServers } from './mcpServers.js'
 import { openExternal } from './openExternal.js'
 import {
@@ -33,6 +34,7 @@ interface OAuthPending {
   redirectUri: string
   client: OAuthClient
   metadata: OAuthMetadata
+  serverUrl: string
   createdAt: number
 }
 
@@ -208,7 +210,7 @@ export class ConnectionService {
     }
   }
 
-  async connect(connectorId: string, token?: string): Promise<ConnectionView> {
+  async connect(connectorId: string, token?: string, instanceUrl?: string): Promise<ConnectionView> {
     const builtinCard = this.catalog().find(item => item.id === connectorId)
     const table = await this.table()
     const previous = table.get(connectorId)
@@ -216,7 +218,7 @@ export class ConnectionService {
     let record: ConnectionRecord
 
     if (builtinCard !== undefined && builtinCard.published) {
-      if (builtinCard.auth.type === 'oauth2') return this.installOAuth(builtinCard)
+      if (builtinCard.auth.type === 'oauth2') return this.installOAuth(builtinCard, instanceUrl)
       if (
         (builtinCard.auth.type === 'bearer' || builtinCard.auth.type === 'header')
         && (token === undefined || token.trim() === '')
@@ -364,7 +366,7 @@ export class ConnectionService {
     return this.view(fresh)
   }
 
-  private async installOAuth(card: ConnectorCard): Promise<ConnectionView> {
+  private async installOAuth(card: ConnectorCard, instanceUrl?: string): Promise<ConnectionView> {
     if (card.auth.type !== 'oauth2') {
       throw new ConnectError('oauth_required', `${card.name} 需要 OAuth 授权，请使用授权流程`)
     }
@@ -374,6 +376,22 @@ export class ConnectionService {
     const previous = table.get(card.id)
     if (previous?.oauth !== undefined) return this.view(previous)
 
+    let url: string | undefined
+    if (card.instance !== undefined) {
+      if (instanceUrl !== undefined && instanceUrl.trim() !== '') {
+        const resolved = resolveInstanceMcpUrl(instanceUrl)
+        url = server.url?.replace('{instance}', resolved.instanceUrl)
+        if (url === undefined || url.includes('{instance}')) {
+          throw new ConnectError('invalid_connector', '连接器地址模板不合法')
+        }
+      } else {
+        url = previous?.url
+      }
+    } else {
+      if (server.url === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+      url = server.url
+    }
+
     const now = Date.now()
     const record: ConnectionRecord = {
       key: card.id,
@@ -381,7 +399,7 @@ export class ConnectionService {
       name: card.name,
       serverName: server.serverName,
       transport: server.transport,
-      url: server.url,
+      url,
       command: server.command,
       args: server.args,
       enabled: true,
@@ -432,8 +450,6 @@ export class ConnectionService {
     if (card === undefined || !card.published || card.auth.type !== 'oauth2') {
       throw new ConnectError('not_found', '连接器不存在或未发布')
     }
-    const server = card.server
-    if (server.url === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
 
     const redirect = parseRedirectUri(redirectUri)
     const table = await this.table()
@@ -441,18 +457,24 @@ export class ConnectionService {
     if (previous === undefined) {
       throw new ConnectError('not_installed', '请先安装连接器，再发起授权')
     }
-    const cachedMetadata = this.oauthMetadata.get(server.url)
+    const serverUrl = previous.url
+    if (serverUrl === undefined) {
+      throw card.instance !== undefined
+        ? new ConnectError('instance_required', '请先填写实例地址')
+        : new ConnectError('invalid_connector', '连接记录缺少服务地址')
+    }
+    const cachedMetadata = this.oauthMetadata.get(serverUrl)
     const baseMetadata = cachedMetadata !== undefined && Date.now() - cachedMetadata.at < OAUTH_METADATA_TTL_MS
       ? cachedMetadata.metadata
-      : await fetchOAuthMetadata(server.url)
-    this.oauthMetadata.set(server.url, { metadata: baseMetadata, at: Date.now() })
+      : await fetchOAuthMetadata(serverUrl)
+    this.oauthMetadata.set(serverUrl, { metadata: baseMetadata, at: Date.now() })
 
     const auth = card.auth
     const scope = auth.scopes !== undefined && auth.scopes.length > 0
       ? auth.scopes.join(' ')
       : baseMetadata.scope
     const metadata: OAuthMetadata = { ...baseMetadata, scope }
-    const clientKey = `${server.url}|${redirect}`
+    const clientKey = `${serverUrl}|${redirect}`
     const cached = auth.registration === 'dcr' ? this.oauthClients.get(clientKey) : undefined
     const previousClient = previous.oauth !== undefined
       && previous.oauth.redirectUri === redirect
@@ -473,6 +495,7 @@ export class ConnectionService {
       redirectUri: redirect,
       client,
       metadata,
+      serverUrl,
       createdAt: now,
     })
     this.oauthFlows.set(state, { connectorId, status: 'pending', createdAt: now })
@@ -492,6 +515,9 @@ export class ConnectionService {
     redirect: string,
   ): Promise<OAuthClient> {
     if (auth.registration === 'dcr') {
+      if (metadata.registrationEndpoint === undefined) {
+        throw new ConnectError('oauth_failed', '该 GitLab 实例未提供动态客户端注册，暂不支持；请升级实例或使用自定义连接器')
+      }
       return registerOAuthClient(metadata, redirect, auth.clientName ?? 'DSH 连接器')
     }
     return { clientId: auth.registration.clientId }
@@ -569,7 +595,7 @@ export class ConnectionService {
       name: card.name,
       serverName: server.serverName,
       transport: server.transport,
-      url: server.url,
+      url: pending.serverUrl,
       command: server.command,
       args: server.args,
       oauth: {
@@ -763,6 +789,7 @@ export class ConnectionService {
       transport: record.transport,
       enabled: record.enabled,
       authorized: !this.needsAuth(card) || record.auth !== undefined || record.oauth !== undefined,
+      ...(card?.instance === undefined ? {} : { instanceReady: record.url !== undefined }),
       tools: toolDetails.map(tool => tool.name),
       toolDetails,
       error: record.lastError,

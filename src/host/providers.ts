@@ -9,6 +9,27 @@ export const PROVIDER_CATEGORIES = ['开发工具', '项目管理', '数据库',
 
 const httpsUrl = z.string().url().refine(value => value.startsWith('https://'), '必须使用 https 地址')
 
+const instanceSchema = z.object({
+  label: z.string().min(1),
+  placeholder: z.string().min(1).optional(),
+  hint: z.string().min(1).optional(),
+}).strict()
+
+export function isInstanceUrlTemplate(value: string): boolean {
+  if (!value.startsWith('{instance}')) return false
+  if (value.indexOf('{instance}', 1) !== -1) return false
+  const rest = value.slice('{instance}'.length)
+  return rest === '' || rest.startsWith('/')
+}
+
+export function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 const authHelpSchema = z.object({
   url: httpsUrl,
   label: z.string().min(1),
@@ -55,13 +76,32 @@ export const providerDefinitionSchema = z.object({
   tags: z.array(z.string().min(1)).optional(),
   featured: z.boolean().optional(),
   order: z.number().int().nonnegative().optional(),
+  instance: instanceSchema.optional(),
   server: z.object({
     serverName: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'serverName 只能包含小写字母、数字、下划线和连字符').optional(),
     transport: z.literal('streamable-http'),
-    url: httpsUrl,
+    url: z.string().min(1),
   }).strict(),
   auth: authSchema,
-}).strict()
+}).strict().superRefine((provider, ctx) => {
+  if (provider.instance !== undefined) {
+    if (!isInstanceUrlTemplate(provider.server.url)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['server', 'url'],
+        message: '带 instance 时 server.url 必须是以 {instance} 开头的模板，例如 {instance}/api/v4/mcp',
+      })
+    }
+    return
+  }
+  if (!isHttpsUrl(provider.server.url)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['server', 'url'],
+      message: '不带 instance 时必须使用 https 地址',
+    })
+  }
+})
 
 export type ProviderDefinition = z.infer<typeof providerDefinitionSchema>
 
@@ -100,6 +140,7 @@ function toCard(provider: ProviderDefinition, serverName: string): ConnectorCard
     featured: provider.featured,
     source: 'builtin',
     auth: provider.auth,
+    ...(provider.instance === undefined ? {} : { instance: provider.instance }),
     server,
   }
 }

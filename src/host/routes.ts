@@ -160,7 +160,7 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
       }
 
       if (req.method === 'POST' && path === `${ROUTE_PREFIX}/api/connections`) {
-        const body = await readJson(req) as { connectorId?: unknown; token?: unknown }
+        const body = await readJson(req) as { connectorId?: unknown; token?: unknown; instanceUrl?: unknown }
         if (typeof body.connectorId !== 'string' || body.connectorId === '') {
           throw new ConnectError('invalid_request', '缺少 connectorId')
         }
@@ -168,7 +168,11 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
         if (token !== undefined && typeof token !== 'string') {
           throw new ConnectError('invalid_request', 'token 必须是字符串')
         }
-        const connection = await options.connections.connect(body.connectorId, token)
+        const instanceUrl = body.instanceUrl
+        if (instanceUrl !== undefined && typeof instanceUrl !== 'string') {
+          throw new ConnectError('invalid_request', 'instanceUrl 必须是字符串')
+        }
+        const connection = await options.connections.connect(body.connectorId, token, instanceUrl)
         json(res, 200, { ok: true, value: { connection } })
         return
       }

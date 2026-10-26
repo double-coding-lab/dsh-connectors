@@ -36,9 +36,11 @@
     "providers:icons": "node scripts/build-provider-icons.mjs",
     "providers:check": "node scripts/check-providers.mjs",
     "provider:new": "node scripts/new-provider.mjs",
+    "test:instance": "node scripts/test-instance-url.mjs",
+    "test:provider-schema": "node scripts/test-provider-schema.mjs",
     "build": "node scripts/build-provider-icons.mjs && tsc -p tsconfig.build.json && node scripts/build-client.mjs",
     "typecheck": "node scripts/build-provider-icons.mjs && tsc --noEmit && tsc -p tsconfig.client.json",
-    "check": "npm run typecheck && npm run build && npm run providers:check",
+    "check": "npm run typecheck && npm run build && npm run providers:check && npm run test:instance && npm run test:provider-schema",
     "link:web": "npm run build && dsh plugin --profile web add link:."
   },
   "engines": {

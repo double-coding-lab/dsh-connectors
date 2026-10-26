@@ -27,6 +27,12 @@ export interface ServerSpec {
   args?: string[]
 }
 
+export interface ProviderInstance {
+  label: string
+  placeholder?: string
+  hint?: string
+}
+
 export interface ConnectorCard {
   id: string
   name: string
@@ -39,6 +45,7 @@ export interface ConnectorCard {
   published: boolean
   featured?: boolean
   source?: 'builtin' | 'custom'
+  instance?: ProviderInstance
   auth: CardAuth
   server: ServerSpec
 }
@@ -55,6 +62,7 @@ export interface ConnectionView {
   transport: TransportKind
   enabled: boolean
   authorized: boolean
+  instanceReady?: boolean
   tools: string[]
   toolDetails: ToolInfo[]
   error?: string

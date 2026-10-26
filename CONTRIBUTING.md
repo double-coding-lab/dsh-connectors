@@ -4,7 +4,8 @@
 
 ## 我们接受什么
 
-- 厂商官方的远程 MCP 服务，地址必须是 `https://`。
+- 厂商官方的远程 MCP 服务；普通 provider 地址必须是 `https://`。
+- 需要用户填写实例地址的 provider 使用 `instance` 描述，地址在运行时由用户提供（可 https/http/内网）；provider.json 只放 `{instance}` 模板。
 - `auth` 四选一：`none`、`bearer`、`header`、`oauth2`。
 - provider 目录内的静态描述、示例与可选图标。
 - 真实凭据下验证过能连上并注册工具。
@@ -12,8 +13,8 @@
 ## 我们不接受什么
 
 - provider 携带可执行代码、构建脚本或运行时注入逻辑。
-- 把 token / client secret / 私有地址写进 `provider.json`。
-- `http://` 的内网地址、代理服务或非官方转接端点（这类场景请使用面板里的「自定义连接器」导入）。
+- 把 token / client secret / 固定内网地址写进 `provider.json`。
+- 非 `instance` 的 `http://` 地址、代理服务或非官方转接端点（这类场景请使用面板里的「自定义连接器」导入）。
 - 遥测、上报、远程配置。
 
 ## 目录结构
@@ -38,7 +39,35 @@ npm run provider:new -- acme --auth bearer --name "Acme"
 npm run check
 ```
 
-`npm run check` 会依次执行类型检查、构建和 provider 校验（重复 id / serverName、字段缺失、https、排序等）。
+`npm run check` 会依次执行类型检查、构建、provider 校验与实例地址/契约测试（重复 id / serverName、字段缺失、URL、排序等）。
+
+## 实例地址 provider（instance）
+
+如果服务需要用户填写自己的实例地址（例如自建 GitLab），在 provider 中增加 `instance`，并把 `server.url` 写成 `{instance}` 模板：
+
+```json
+{
+  "instance": {
+    "label": "GitLab 实例地址",
+    "placeholder": "https://gitlab.example.com",
+    "hint": "可填写带子路径的地址；不要填写 /api/v4/mcp。"
+  },
+  "server": {
+    "serverName": "gitlab-self-hosted",
+    "transport": "streamable-http",
+    "url": "{instance}/api/v4/mcp"
+  }
+}
+```
+
+规则：
+
+- `instance.label` 必填；`placeholder` / `hint` 可选。
+- `server.url` 必须以 `{instance}` 开头、只出现一次，后面只能跟 `/` 开头的路径。
+- 用户填写的地址在运行时校验：允许 http/https 与内网，拒绝账号密码、query、hash；界面会对 http 显示明文提示。
+- 带 `instance` 的 OAuth provider 仍要求实例支持 DCR；地址只存安装记录，不写回 provider.json。
+- 带 `instance` 的 provider 加号会先写入一条无 URL 的安装记录，再在授权弹窗中填写地址；提交后补 URL 并授权。
+- 已配置地址后 `instanceReady=true`，换地址需删除重装；未配置时关闭弹窗仍保持安装，可再次打开继续填写。
 
 ## Auth 类型
 

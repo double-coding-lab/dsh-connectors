@@ -16,6 +16,7 @@ npm run check             # 类型检查 + 构建 + provider 校验
 | neon | bearer | 数据库 |
 | supabase | bearer | 数据库 |
 | gitlab | oauth2 | 开发工具 |
+| gitlab-self-hosted | oauth2（instance） | 开发工具 |
 | context7 | none | 知识检索 |
 
 新增或修改 provider 的完整规则见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
