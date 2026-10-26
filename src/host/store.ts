@@ -9,7 +9,7 @@ const authSchema = z.object({
 })
 
 const oauthSchema = z.object({
-  provider: z.literal('gitlab'),
+  provider: z.string().min(1),
   clientId: z.string().min(1),
   clientSecret: z.string().optional(),
   redirectUri: z.string().url().optional(),

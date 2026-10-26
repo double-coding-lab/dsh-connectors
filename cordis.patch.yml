@@ -5,5 +5,4 @@
     - id: dsh-connectors
       name: dsh-connectors
       config:
-        catalogUrl: ''
         showSidebarEntry: true

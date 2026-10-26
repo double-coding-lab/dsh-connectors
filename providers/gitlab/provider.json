@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "gitlab",
+  "name": "GitLab.com",
+  "vendor": "GitLab",
+  "category": "开发工具",
+  "summary": "通过 GitLab.com 官方 MCP 接入，授权一次即可使用项目、Issue 与合并请求工具。",
+  "description": "GitLab.com 官方 MCP 服务，支持项目、Issue、合并请求、Wiki、CI 等工具。点击安装后在浏览器完成 GitLab 授权，令牌只保存在本机。",
+  "examples": [
+    "查看 group/project 的开放合并请求，按更新时间排序",
+    "总结 group/project 最近的 Issue 和负责人",
+    "给合并请求 !123 添加一条评论，说明本地测试结果",
+    "查看当前项目的流水线状态，失败时给出原因"
+  ],
+  "tags": ["代码托管", "合并请求"],
+  "featured": true,
+  "order": 50,
+  "server": {
+    "serverName": "gitlab",
+    "transport": "streamable-http",
+    "url": "https://gitlab.com/api/v4/mcp"
+  },
+  "auth": {
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "scopes": ["mcp"],
+    "clientName": "DSH 连接器"
+  }
+}

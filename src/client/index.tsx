@@ -4,7 +4,8 @@ import { createPortal } from 'react-dom'
 
 import type { CatalogPayload, ConnectionView, ConnectorCard, ConnectionsPayload, CustomConnectorsPayload, OAuthStartPayload, OAuthStatusPayload, ToolInfo } from '../shared/types.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
-import { BrandContext7, BrandGithub, BrandGitlab, BrandLinear, BrandNeon, BrandSupabase, IconAlert, IconCheck, IconChevronDown, IconClose, IconCode, IconCopy, IconEye, IconEyeOff, IconGlobe, IconLink, IconMore, IconPlay, IconPlug, IconPlus, IconRefresh, IconSearch, IconTrash } from './icons.js'
+import { IconAlert, IconCheck, IconChevronDown, IconClose, IconCopy, IconEye, IconEyeOff, IconLink, IconMore, IconPlay, IconPlug, IconPlus, IconRefresh, IconSearch, IconTrash } from './icons.js'
+import { PROVIDER_ICONS } from './provider-icons.generated.js'
 
 export const inject: string[] = []
 
@@ -188,11 +189,21 @@ const OAUTH_TIMEOUT_MS = 3 * 60 * 1000
 const OAUTH_POLL_MS = 1200
 
 function isOAuthCard(card: ConnectorCard): boolean {
-  return card.authMode === 'oauth2-pkce' && card.oauthProvider === 'gitlab'
+  return card.auth.type === 'oauth2'
 }
 
 function isTokenCard(card: ConnectorCard): boolean {
-  return card.authMode === 'bearer' || card.authMode === 'api-key'
+  return card.auth.type === 'bearer' || card.auth.type === 'header'
+}
+
+function tokenLabel(card: ConnectorCard): string {
+  const auth = card.auth
+  return auth.type === 'bearer' || auth.type === 'header' ? auth.label : '访问令牌'
+}
+
+function tokenHelp(card: ConnectorCard): { url: string; label: string; hint?: string } | undefined {
+  const auth = card.auth
+  return auth.type === 'bearer' || auth.type === 'header' ? auth.help : undefined
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -453,7 +464,7 @@ function ConnectorDock(): JSX.Element | null {
         const failed = state.connections[card.id]?.error !== undefined
         return (
           <span key={card.id} className="dshc-dock-icon" style={{ zIndex: shown.length - index }}>
-            <ConnectorLogo card={card} size={24} />
+            <ConnectorLogo card={card} size={single ? 24 : 18} />
             {failed && <span className="dshc-dock-dot" />}
           </span>
         )
@@ -518,8 +529,6 @@ function ConnectorPopover(): JSX.Element | null {
             : cards.map(card => {
                 const connection = state.connections[card.id]
                 const pending = state.pendingId === card.id
-                const oauth = isOAuthCard(card)
-                const unsupported = (card.authMode === 'oauth2-pkce' && !oauth) || card.authMode === 'fields'
                 return (
                   <div className="dshc-dock-item" key={card.id}>
                     <div className="dshc-dock-row">
@@ -532,29 +541,27 @@ function ConnectorPopover(): JSX.Element | null {
                             ? <span className="dshc-dock-row-state">未授权</span>
                             : null}
                       </span>
-                      {unsupported && connection === undefined
-                        ? <span className="dshc-dock-row-hint">未接入</span>
-                        : connection !== undefined && connection.authorized
-                          ? (
-                              pending
-                                ? <span className="dshc-dock-toggle" role="status" aria-label="处理中">
-                                    <span className="dshc-spinner dshc-spinner-inline" aria-hidden />
-                                  </span>
-                                : <button
-                                    type="button"
-                                    role="switch"
-                                    className="dshc-switch"
-                                    aria-checked={connection.enabled}
-                                    aria-label={connection.enabled ? `停用 ${card.name}` : `启用 ${card.name}`}
-                                    title={connection.enabled ? '停用' : '启用'}
-                                    onClick={() => { void toggleDockConnection(card, !connection.enabled) }}
-                                  />
-                            )
-                          : (
-                              <button type="button" className="dshc-dock-connect" onClick={openConnectorPanel}>
-                                {connection === undefined ? '去连接' : '去授权'}
-                              </button>
-                            )}
+                      {connection !== undefined && connection.authorized
+                        ? (
+                            pending
+                              ? <span className="dshc-dock-toggle" role="status" aria-label="处理中">
+                                  <span className="dshc-spinner dshc-spinner-inline" aria-hidden />
+                                </span>
+                              : <button
+                                  type="button"
+                                  role="switch"
+                                  className="dshc-switch"
+                                  aria-checked={connection.enabled}
+                                  aria-label={connection.enabled ? `停用 ${card.name}` : `启用 ${card.name}`}
+                                  title={connection.enabled ? '停用' : '启用'}
+                                  onClick={() => { void toggleDockConnection(card, !connection.enabled) }}
+                                />
+                          )
+                        : (
+                            <button type="button" className="dshc-dock-connect" onClick={openConnectorPanel}>
+                              {connection === undefined ? '去连接' : '去授权'}
+                            </button>
+                          )}
                     </div>
                   </div>
                 )
@@ -995,7 +1002,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                       installToken(card, 'page')
                       return
                     }
-                    if (card.authMode === 'none') {
+                    if (card.auth.type === 'none') {
                       connect(card, undefined, 'page')
                       return
                     }
@@ -1012,7 +1019,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
                   onReauthorize={isOAuthCard(card) && connections[card.id]?.authorized === true
                     ? () => runOAuth(card, false, 'page', true)
                     : undefined}
-                  onRevoke={card.authMode === 'oauth2-pkce'
+                  onRevoke={isOAuthCard(card)
                     ? () => revoke(card, 'page')
                     : undefined}
                   onTrial={() => startTrialFor(card)}
@@ -1240,7 +1247,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
         <span className="dshc-avatar"><ConnectorLogo card={card} /></span>
         <div className="dshc-card-title">
           <strong>{card.name}</strong>
-          <span>{card.vendor ?? card.servers[0]?.transport}</span>
+          <span>{card.vendor ?? card.server.transport}</span>
         </div>
       </div>
       <p
@@ -1516,9 +1523,9 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
     top: number
     above: boolean
   } | null>(null)
-  const needsToken = card.authMode === 'api-key' || card.authMode === 'bearer'
+  const needsToken = isTokenCard(card)
+  const help = tokenHelp(card)
   const oauth = isOAuthCard(card)
-  const unsupported = (card.authMode === 'oauth2-pkce' && !oauth) || card.authMode === 'fields'
   const unauthorized = connection !== undefined && !connection.authorized
   const disabled = connection !== undefined && connection.authorized && !connection.enabled
   const connected = connection !== undefined && connection.authorized && connection.enabled && connection.error === undefined
@@ -1526,7 +1533,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
   const canTry = connected && toolDetails.length > 0
   const visibleTools = showAllTools ? toolDetails : toolDetails.slice(0, 4)
   const examples = card.examples ?? []
-  const showingInstall = installOpen && !unsupported && connection === undefined && !needsToken
+  const showingInstall = installOpen && connection === undefined && !needsToken
   const failedWithToken = needsToken && connection !== undefined && connection.authorized && connection.error !== undefined
   const tokenEntry = needsToken && connection !== undefined && (!connection.authorized || connection.error !== undefined)
   const busy = pending || toggling
@@ -1590,18 +1597,16 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
           ? '复制失败'
           : '复制'
 
-  const statusText = unsupported
-    ? '授权方式未接入'
-    : connection === undefined
-      ? '未连接'
-      : unauthorized
-        ? (authorizing ? '授权中' : '未授权')
-        : disabled
-          ? '已停用'
-          : connected
-            ? '已连接'
-            : '连接失败'
-  const statusClass = unsupported || connection === undefined || unauthorized || disabled
+  const statusText = connection === undefined
+    ? '未连接'
+    : unauthorized
+      ? (authorizing ? '授权中' : '未授权')
+      : disabled
+        ? '已停用'
+        : connected
+          ? '已连接'
+          : '连接失败'
+  const statusClass = connection === undefined || unauthorized || disabled
     ? 'dshc-status-pill'
     : connected
       ? 'dshc-status-pill dshc-status-pill-connected'
@@ -1631,12 +1636,9 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
           <p className="dshc-dialog-body">{card.description ?? card.summary}</p>
           {connection?.error !== undefined && <p className="dshc-dialog-error">{connection.error}</p>}
 
-          {unsupported && (
-            <p className="dshc-dialog-hint">{card.name} 使用 OAuth 授权，授权流程尚未接入。</p>
-          )}
           {needsToken && tokenEntry && (
             <div className="dshc-field">
-              <label htmlFor="dshc-token-input">{card.authLabel ?? '访问令牌'}</label>
+              <label htmlFor="dshc-token-input">{tokenLabel(card)}</label>
               <span className="dshc-field-control">
                 <input
                   id="dshc-token-input"
@@ -1667,22 +1669,22 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
               </span>
             </div>
           )}
-          {needsToken && tokenEntry && card.authHelpUrl !== undefined && (
+          {needsToken && tokenEntry && help !== undefined && (
             <p className="dshc-dialog-hint">
-              <a className="dshc-link" href={card.authHelpUrl} target="_blank" rel="noreferrer">
-                {card.authHelpLabel ?? '创建访问令牌'}
+              <a className="dshc-link" href={help.url} target="_blank" rel="noreferrer">
+                {help.label}
               </a>
-              {card.authHelpHint !== undefined && <span>　{card.authHelpHint}</span>}
+              {help.hint !== undefined && <span>　{help.hint}</span>}
             </p>
           )}
           {oauth && showingInstall && (
-            <p className="dshc-dialog-hint">安装后会自动打开默认浏览器完成 GitLab 授权。</p>
+            <p className="dshc-dialog-hint">安装后会自动打开默认浏览器完成 {card.name} 授权。</p>
           )}
           {oauth && unauthorized && (
             <p className="dshc-dialog-hint">
               {authorizing
                 ? '已打开授权页，完成授权后会自动同步。'
-                : '已安装，点击授权后在浏览器完成 GitLab 登录。'}
+                : `已安装，点击授权后在浏览器完成 ${card.name} 授权。`}
             </p>
           )}
           {authorizeLink !== null && authorizing && (
@@ -1811,12 +1813,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
             </button>
           )}
           <span className="dshc-dialog-actions-right">
-            {unsupported && (
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={busy} onClick={onClose}>
-                关闭
-              </button>
-            )}
-            {!unsupported && authorizing && connection?.authorized === true && (
+            {authorizing && connection?.authorized === true && (
               <>
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancelAuthorize}>
                   取消授权
@@ -1827,7 +1824,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                 </button>
               </>
             )}
-            {!unsupported && unauthorized && (
+            {unauthorized && (
               authorizing ? (
                 <>
                   <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancelAuthorize}>
@@ -1845,7 +1842,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                   </button>
                   {oauth ? (
                     <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onAuthorize}>
-                      授权 GitLab
+                      授权 {card.name}
                     </button>
                   ) : (
                     <button
@@ -1860,7 +1857,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                 </>
               )
             )}
-            {!unsupported && !authorizing && disabled && (
+            {!authorizing && disabled && (
               <>
                 <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
                   {removeLabel}
@@ -1875,7 +1872,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                 </button>
               </>
             )}
-            {!unsupported && !authorizing && connected && (
+            {!authorizing && connected && (
               <>
                 <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
                   {pending ? removingLabel : removeLabel}
@@ -1895,7 +1892,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                 </button>
               </>
             )}
-            {!unsupported && !authorizing && connection !== undefined && connection.authorized && !connected && !disabled && (
+            {!authorizing && connection !== undefined && connection.authorized && !connected && !disabled && (
               <>
                 <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
                   {removeLabel}
@@ -1921,7 +1918,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                 )}
               </>
             )}
-            {!unsupported && connection === undefined && showingInstall && (
+            {connection === undefined && showingInstall && (
               <>
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={busy} onClick={onCancelInstall}>
                   取消
@@ -1949,7 +1946,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                 )}
               </>
             )}
-            {!unsupported && connection === undefined && !showingInstall && (
+            {connection === undefined && !showingInstall && (
               <>
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={busy} onClick={onClose}>
                   关闭
@@ -1994,6 +1991,7 @@ interface CredentialDialogProps {
 function CredentialDialog({ card, saving, error, onClose, onSubmit }: CredentialDialogProps): JSX.Element {
   const [token, setToken] = useState('')
   const [tokenVisible, setTokenVisible] = useState(false)
+  const help = tokenHelp(card)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -2029,7 +2027,7 @@ function CredentialDialog({ card, saving, error, onClose, onSubmit }: Credential
         <div className="dshc-dialog-content">
           <p className="dshc-dialog-hint">当前令牌不会显示；保存新令牌后立即替换。</p>
           <div className="dshc-field">
-            <label htmlFor="dshc-credential-token">{card.authLabel ?? '访问令牌'}</label>
+            <label htmlFor="dshc-credential-token">{tokenLabel(card)}</label>
             <span className="dshc-field-control">
               <input
                 id="dshc-credential-token"
@@ -2059,12 +2057,12 @@ function CredentialDialog({ card, saving, error, onClose, onSubmit }: Credential
               </button>
             </span>
           </div>
-          {card.authHelpUrl !== undefined && (
+          {help !== undefined && (
             <p className="dshc-dialog-hint">
-              <a className="dshc-link" href={card.authHelpUrl} target="_blank" rel="noreferrer">
-                {card.authHelpLabel ?? '创建访问令牌'}
+              <a className="dshc-link" href={help.url} target="_blank" rel="noreferrer">
+                {help.label}
               </a>
-              {card.authHelpHint !== undefined && <span>　{card.authHelpHint}</span>}
+              {help.hint !== undefined && <span>　{help.hint}</span>}
             </p>
           )}
           {error !== null && <p className="dshc-dialog-error">{error}</p>}
@@ -2262,19 +2260,19 @@ function DeleteCustomDialog({ card, pending, error, onClose, onConfirm }: Delete
 }
 
 function ConnectorLogo({ card, size = 22 }: { card: ConnectorCard; size?: number }): JSX.Element {
-  if (card.icon === 'github') return <BrandGithub size={size} />
-  if (card.icon === 'gitlab') return <BrandGitlab size={size} />
-  if (card.icon === 'context7') return <BrandContext7 size={size} className="dshc-logo-img" />
-  if (card.icon === 'linear') return <BrandLinear size={size} />
-  if (card.icon === 'neon') return <BrandNeon size={size} />
-  if (card.icon === 'supabase') return <BrandSupabase size={size} />
-  return <CardIcon category={card.category} size={size} />
-}
-
-function CardIcon({ category, size = 16 }: { category: string; size?: number }): JSX.Element {
-  if (category === '开发工具') return <IconCode size={size} />
-  if (category === '知识检索') return <IconGlobe size={size} />
-  return <IconLink size={size} />
+  const src = PROVIDER_ICONS[card.id]
+  if (src !== undefined) {
+    return <img width={size} height={size} className="dshc-logo-img" src={src} alt="" />
+  }
+  return (
+    <span
+      className="dshc-logo-fallback"
+      style={{ width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.44)) }}
+      aria-hidden
+    >
+      {card.name.slice(0, 1).toUpperCase()}
+    </span>
+  )
 }
 
 function installStyles(): void {
@@ -2319,6 +2317,7 @@ function installStyles(): void {
 .dshc-card-top{display:flex;align-items:center;gap:12px;min-width:0}
 .dshc-avatar{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;flex:none;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);overflow:hidden}
 .dshc-logo-img{border-radius:calc(var(--dsw-radius-md) - 2px)}
+.dshc-logo-fallback{display:inline-flex;align-items:center;justify-content:center;flex:none;border-radius:50%;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-weight:500;line-height:1}
 .dshc-card-title{display:flex;flex-direction:column;min-width:0}
 .dshc-card-title strong{font-size:14px;font-weight:500;line-height:20px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dshc-card-title span{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2373,11 +2372,12 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-dock{box-sizing:border-box;display:inline-flex;align-items:center;gap:0;height:28px;padding:2px 6px;border:0;border-radius:999px;background:transparent;cursor:pointer;flex:none;transition:background-color .15s}
 .dshc-dock-single{width:32px;height:32px;padding:4px;gap:0;justify-content:center;border-radius:50%}
 .dshc-dock:hover{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
-.dshc-dock-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex:none;border-radius:50%;background:var(--dsw-specific-input-major,var(--dsw-alias-bg-layer-1))}
-.dshc-dock-icon+.dshc-dock-icon{margin-left:-10px}
+.dshc-dock-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;border-radius:50%;background:var(--dsw-specific-input-major,var(--dsw-alias-bg-layer-1))}
+.dshc-dock-single .dshc-dock-icon{width:24px;height:24px}
+.dshc-dock-icon+.dshc-dock-icon{margin-left:-7px}
 .dshc-dock-icon .dshc-logo-img{border-radius:50%}
 .dshc-dock-dot{position:absolute;right:0;bottom:0;z-index:2;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-error-primary)}
-.dshc-dock-more{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-left:2px;border-radius:50%;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:500;flex:none}
+.dshc-dock-more{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:50%;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:500;flex:none}
 .dshc-dock-popover{position:absolute;left:0;bottom:calc(100% + 8px);z-index:40;box-sizing:border-box;display:flex;flex-direction:column;width:min(340px,calc(100vw - 32px));max-height:min(460px,60vh);padding:8px;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-prominent)}
 .dshc-dock-search{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);flex:none}
 .dshc-dock-search input{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}

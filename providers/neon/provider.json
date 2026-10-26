@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "neon",
+  "name": "Neon",
+  "vendor": "Neon",
+  "category": "数据库",
+  "summary": "管理 Neon 项目、分支和 SQL，使用 API Key 接入。",
+  "description": "Neon 官方 MCP 服务，支持项目/分支管理、SQL 查询、schema 与监控等工具。安装时粘贴 Neon API Key，令牌只保存在本机。",
+  "examples": [
+    "列出我的 Neon 项目，并说明每个项目的区域和数据库",
+    "在项目 my-project 创建一个新分支用于测试",
+    "查询 my-project 的 users 表结构和最近 10 条记录",
+    "检查 my-project 最近的慢查询和连接数"
+  ],
+  "tags": ["Postgres", "数据库", "SQL"],
+  "order": 30,
+  "server": {
+    "serverName": "neon",
+    "transport": "streamable-http",
+    "url": "https://mcp.neon.tech/mcp"
+  },
+  "auth": {
+    "type": "bearer",
+    "label": "Neon API Key",
+    "help": {
+      "url": "https://console.neon.tech/app/settings/api-keys",
+      "label": "创建 Neon API Key",
+      "hint": "在 Neon Console → Account settings → API keys 创建；令牌只保存在本机。"
+    }
+  }
+}

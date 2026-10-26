@@ -17,9 +17,11 @@
   },
   "files": [
     "dist",
-    "catalog",
+    "providers",
+    "schema",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "CONTRIBUTING.md"
   ],
   "dsh": {
     "bundle": {
@@ -31,9 +33,12 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/build-client.mjs",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.client.json",
-    "check": "npm run typecheck && npm run build",
+    "providers:icons": "node scripts/build-provider-icons.mjs",
+    "providers:check": "node scripts/check-providers.mjs",
+    "provider:new": "node scripts/new-provider.mjs",
+    "build": "node scripts/build-provider-icons.mjs && tsc -p tsconfig.build.json && node scripts/build-client.mjs",
+    "typecheck": "node scripts/build-provider-icons.mjs && tsc --noEmit && tsc -p tsconfig.client.json",
+    "check": "npm run typecheck && npm run build && npm run providers:check",
     "link:web": "npm run build && dsh plugin --profile web add link:."
   },
   "engines": {

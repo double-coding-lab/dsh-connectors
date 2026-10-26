@@ -1,6 +1,6 @@
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 
-import type { ConnectorCard, ConnectionView, ToolInfo } from '../shared/types.js'
+import type { CardAuth, ConnectorCard, ConnectionView, ToolInfo } from '../shared/types.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
 import { ConnectError } from './errors.js'
 import { assertPrivateUrlsAllowed, parseMcpServers } from './mcpServers.js'
@@ -216,15 +216,14 @@ export class ConnectionService {
     let record: ConnectionRecord
 
     if (builtinCard !== undefined && builtinCard.published) {
-      if (builtinCard.authMode === 'oauth2-pkce') return this.installOAuth(builtinCard)
+      if (builtinCard.auth.type === 'oauth2') return this.installOAuth(builtinCard)
       if (
-        (builtinCard.authMode === 'bearer' || builtinCard.authMode === 'api-key')
+        (builtinCard.auth.type === 'bearer' || builtinCard.auth.type === 'header')
         && (token === undefined || token.trim() === '')
       ) {
         return this.installToken(builtinCard)
       }
-      const server = builtinCard.servers[0]
-      if (server === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+      const server = builtinCard.server
       record = {
         key: builtinCard.id,
         connectorId: builtinCard.id,
@@ -366,11 +365,10 @@ export class ConnectionService {
   }
 
   private async installOAuth(card: ConnectorCard): Promise<ConnectionView> {
-    if (card.oauthProvider !== 'gitlab') {
+    if (card.auth.type !== 'oauth2') {
       throw new ConnectError('oauth_required', `${card.name} 需要 OAuth 授权，请使用授权流程`)
     }
-    const server = card.servers[0]
-    if (server === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+    const server = card.server
 
     const table = await this.table()
     const previous = table.get(card.id)
@@ -396,8 +394,7 @@ export class ConnectionService {
   }
 
   private async installToken(card: ConnectorCard): Promise<ConnectionView> {
-    const server = card.servers[0]
-    if (server === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+    const server = card.server
 
     const table = await this.table()
     const previous = table.get(card.id)
@@ -423,7 +420,7 @@ export class ConnectionService {
   }
 
   private needsAuth(card: ConnectorCard | undefined): boolean {
-    return card?.authMode === 'oauth2-pkce' || card?.authMode === 'bearer' || card?.authMode === 'api-key'
+    return card?.auth.type === 'oauth2' || card?.auth.type === 'bearer' || card?.auth.type === 'header'
   }
 
   private cardFor(connectorId: string): ConnectorCard | undefined {
@@ -432,16 +429,11 @@ export class ConnectionService {
 
   async startOAuth(connectorId: string, redirectUri: string): Promise<{ authorizeUrl: string; flowId: string; opened: boolean }> {
     const card = this.catalog().find(item => item.id === connectorId)
-    if (
-      card === undefined
-      || !card.published
-      || card.authMode !== 'oauth2-pkce'
-      || card.oauthProvider !== 'gitlab'
-    ) {
+    if (card === undefined || !card.published || card.auth.type !== 'oauth2') {
       throw new ConnectError('not_found', '连接器不存在或未发布')
     }
-    const server = card.servers[0]
-    if (server?.url === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+    const server = card.server
+    if (server.url === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
 
     const redirect = parseRedirectUri(redirectUri)
     const table = await this.table()
@@ -450,18 +442,25 @@ export class ConnectionService {
       throw new ConnectError('not_installed', '请先安装连接器，再发起授权')
     }
     const cachedMetadata = this.oauthMetadata.get(server.url)
-    const metadata = cachedMetadata !== undefined && Date.now() - cachedMetadata.at < OAUTH_METADATA_TTL_MS
+    const baseMetadata = cachedMetadata !== undefined && Date.now() - cachedMetadata.at < OAUTH_METADATA_TTL_MS
       ? cachedMetadata.metadata
       : await fetchOAuthMetadata(server.url)
-    this.oauthMetadata.set(server.url, { metadata, at: Date.now() })
+    this.oauthMetadata.set(server.url, { metadata: baseMetadata, at: Date.now() })
+
+    const auth = card.auth
+    const scope = auth.scopes !== undefined && auth.scopes.length > 0
+      ? auth.scopes.join(' ')
+      : baseMetadata.scope
+    const metadata: OAuthMetadata = { ...baseMetadata, scope }
     const clientKey = `${server.url}|${redirect}`
-    const cached = this.oauthClients.get(clientKey)
-    const client = previous?.oauth !== undefined
-      && previous.oauth.provider === 'gitlab'
+    const cached = auth.registration === 'dcr' ? this.oauthClients.get(clientKey) : undefined
+    const previousClient = previous.oauth !== undefined
       && previous.oauth.redirectUri === redirect
+      && (auth.registration === 'dcr' || auth.registration.clientId === previous.oauth.clientId)
       ? { clientId: previous.oauth.clientId, clientSecret: previous.oauth.clientSecret }
-      : cached ?? await registerOAuthClient(metadata, redirect, 'DSH 连接器')
-    this.oauthClients.set(clientKey, client)
+      : undefined
+    const client = previousClient ?? cached ?? await this.oauthClientFor(auth, metadata, redirect)
+    if (auth.registration === 'dcr') this.oauthClients.set(clientKey, client)
 
     const { verifier, challenge } = createPkce()
     const state = createState()
@@ -485,6 +484,17 @@ export class ConnectionService {
     })
     const opened = await openExternal(authorizeUrl)
     return { authorizeUrl, flowId: state, opened }
+  }
+
+  private async oauthClientFor(
+    auth: Extract<CardAuth, { type: 'oauth2' }>,
+    metadata: OAuthMetadata,
+    redirect: string,
+  ): Promise<OAuthClient> {
+    if (auth.registration === 'dcr') {
+      return registerOAuthClient(metadata, redirect, auth.clientName ?? 'DSH 连接器')
+    }
+    return { clientId: auth.registration.clientId }
   }
 
   async completeOAuth(state: string, code: string): Promise<ConnectionView> {
@@ -540,8 +550,7 @@ export class ConnectionService {
   private async finishOAuth(pending: OAuthPending, code: string): Promise<ConnectionView> {
     const card = this.catalog().find(item => item.id === pending.connectorId)
     if (card === undefined || !card.published) throw new ConnectError('not_found', '连接器已下架')
-    const server = card.servers[0]
-    if (server === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
+    const server = card.server
 
     const tokens = await exchangeCode(pending.metadata.tokenEndpoint, {
       code,
@@ -564,7 +573,7 @@ export class ConnectionService {
       command: server.command,
       args: server.args,
       oauth: {
-        provider: 'gitlab',
+        provider: card.id,
         clientId: pending.client.clientId,
         ...(pending.client.clientSecret === undefined ? {} : { clientSecret: pending.client.clientSecret }),
         redirectUri: pending.redirectUri,
@@ -582,10 +591,10 @@ export class ConnectionService {
 
     try {
       await this.provision(record, true)
-      const tools = await this.waitForTools(record.serverName, 10_000)
+      const tools = await this.waitForTools(record.serverName, TOOL_WAIT_TIMEOUT_MS)
       if (tools.length === 0) {
         await this.removeEntry(record.connectorId)
-        throw new ConnectError('connect_failed', '授权成功，但 10 秒内没有发现 GitLab 工具，请稍后重试')
+        throw new ConnectError('connect_failed', `授权成功，但 ${TOOL_WAIT_TIMEOUT_MS / 1000} 秒内没有发现 ${card.name} 工具，请稍后重试`)
       }
     } catch (error) {
       await this.removeEntry(record.connectorId).catch(() => undefined)
@@ -652,7 +661,7 @@ export class ConnectionService {
     const connections = await this.table()
     const usedNames = new Set<string>()
     for (const card of this.catalog()) {
-      for (const server of card.servers) usedNames.add(server.serverName)
+      usedNames.add(card.server.serverName)
     }
     for (const [, record] of customTable.entries()) usedNames.add(record.serverName)
     for (const [, record] of connections.entries()) usedNames.add(record.serverName)
@@ -702,24 +711,19 @@ export class ConnectionService {
   }
 
   private authFor(card: ConnectorCard, token?: string): ConnectionRecord['auth'] {
-    if (card.authMode === 'none') return undefined
-    if (card.authMode === 'oauth2-pkce') {
+    const auth = card.auth
+    if (auth.type === 'none') return undefined
+    if (auth.type === 'oauth2') {
       throw new ConnectError('oauth_required', `${card.name} 需要 OAuth 授权，请使用安装流程中的授权按钮`)
-    }
-    if (card.authMode === 'fields') {
-      throw new ConnectError('auth_not_supported', `${card.name} 的多字段凭据暂未接入`)
     }
     const value = token?.trim()
     if (value === undefined || value === '') {
-      throw new ConnectError('missing_token', `请填写 ${card.authLabel ?? '访问令牌'}`)
+      throw new ConnectError('missing_token', `请填写 ${auth.label}`)
     }
-    const bearer = card.authMode === 'bearer'
-    return {
-      mode: bearer ? 'bearer' : 'api-key',
-      header: card.authHeader ?? 'Authorization',
-      prefix: card.authPrefix ?? (bearer ? 'Bearer ' : ''),
-      token: value,
+    if (auth.type === 'bearer') {
+      return { mode: 'bearer', header: 'Authorization', prefix: 'Bearer ', token: value }
     }
+    return { mode: 'api-key', header: auth.header, prefix: auth.prefix ?? '', token: value }
   }
 
   private toolDetailsFor(serverName: string): ToolInfo[] {
@@ -778,9 +782,13 @@ export class ConnectionService {
         : '通过 mcpServers 导入的 Streamable HTTP MCP Server。',
       tags: ['自定义', record.transport],
       published: true,
-      authMode: 'none',
+      auth: { type: 'none' },
       source: 'custom',
-      servers: [{ key: 'default', serverName: record.serverName, transport: record.transport }],
+      server: {
+        serverName: record.serverName,
+        transport: record.transport,
+        ...(record.url === undefined ? {} : { url: record.url }),
+      },
     }
   }
 

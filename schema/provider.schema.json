@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DSH Connector Provider",
+  "description": "dsh-connectors 内置 provider 的唯一声明格式。新增 provider 时在 providers/<id>/provider.json 中提供此结构。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "category", "summary", "server", "auth"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "编辑器提示用，可省略；插件运行时忽略。"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "description": "provider 契约版本，当前固定为 1。"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "全局唯一，必须与目录名一致；只允许小写字母、数字和连字符。"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vendor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "enum": ["开发工具", "项目管理", "数据库", "知识检索", "办公协作", "其他"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "卡片上展示的一句话说明。"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "examples": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "featured": {
+      "type": "boolean"
+    },
+    "order": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "目录排序，越小越靠前；缺省为 100。"
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "url"],
+      "properties": {
+        "serverName": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*$",
+          "description": "MCP 工具前缀 mcp__<serverName>__；缺省等于 provider id，必须全局唯一。"
+        },
+        "transport": {
+          "const": "streamable-http",
+          "description": "内置 provider 只支持远程 Streamable HTTP；本地 stdio 通过自定义 mcpServers 导入。"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "必须是 https 地址。"
+        }
+      }
+    },
+    "auth": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "const": "none"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "label"],
+          "properties": {
+            "type": {
+              "const": "bearer"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            },
+            "help": {
+              "$ref": "#/$defs/help"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "header", "label"],
+          "properties": {
+            "type": {
+              "const": "header"
+            },
+            "header": {
+              "type": "string",
+              "minLength": 1
+            },
+            "prefix": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            },
+            "help": {
+              "$ref": "#/$defs/help"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "flow", "registration"],
+          "properties": {
+            "type": {
+              "const": "oauth2"
+            },
+            "flow": {
+              "const": "pkce"
+            },
+            "registration": {
+              "oneOf": [
+                {
+                  "const": "dcr"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["clientId"],
+                  "properties": {
+                    "clientId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              ]
+            },
+            "scopes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "clientName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "help": {
+              "$ref": "#/$defs/help"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "help": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "label"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hint": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

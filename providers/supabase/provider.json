@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "supabase",
+  "name": "Supabase",
+  "vendor": "Supabase",
+  "category": "数据库",
+  "summary": "查询 Supabase 数据库、Edge Functions 与项目配置，使用 PAT 接入。",
+  "description": "Supabase 官方 MCP 服务，支持 SQL 查询、表结构、Edge Functions 与项目管理等工具。安装时粘贴 Supabase PAT，令牌只保存在本机。",
+  "examples": [
+    "列出我的 Supabase 项目，并说明每个项目的区域",
+    "查询项目 my-project 的 users 表结构和最近 20 条记录",
+    "查看项目 my-project 最近的 Edge Function 日志",
+    "为项目 my-project 创建一个新的数据库表"
+  ],
+  "tags": ["Postgres", "数据库", "Edge Functions"],
+  "order": 40,
+  "server": {
+    "serverName": "supabase",
+    "transport": "streamable-http",
+    "url": "https://mcp.supabase.com/mcp"
+  },
+  "auth": {
+    "type": "bearer",
+    "label": "Supabase PAT",
+    "help": {
+      "url": "https://supabase.com/dashboard/account/tokens",
+      "label": "创建 Supabase PAT",
+      "hint": "在 Supabase Dashboard → Account → Access Tokens 创建；令牌只保存在本机。"
+    }
+  }
+}

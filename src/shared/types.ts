@@ -1,9 +1,25 @@
-export type AuthMode = 'none' | 'bearer' | 'api-key' | 'fields' | 'oauth2-pkce'
-
 export type TransportKind = 'stdio' | 'streamable-http'
 
+export interface AuthHelp {
+  url: string
+  label: string
+  hint?: string
+}
+
+export type CardAuth =
+  | { type: 'none' }
+  | { type: 'bearer'; label: string; help?: AuthHelp }
+  | { type: 'header'; header: string; prefix?: string; label: string; help?: AuthHelp }
+  | {
+    type: 'oauth2'
+    flow: 'pkce'
+    registration: 'dcr' | { clientId: string }
+    scopes?: string[]
+    clientName?: string
+    help?: AuthHelp
+  }
+
 export interface ServerSpec {
-  key: string
   serverName: string
   transport: TransportKind
   url?: string
@@ -15,7 +31,6 @@ export interface ConnectorCard {
   id: string
   name: string
   vendor?: string
-  icon?: string
   category: string
   summary: string
   description?: string
@@ -24,15 +39,8 @@ export interface ConnectorCard {
   published: boolean
   featured?: boolean
   source?: 'builtin' | 'custom'
-  authMode: AuthMode
-  authHeader?: string
-  authPrefix?: string
-  authLabel?: string
-  authHelpUrl?: string
-  authHelpLabel?: string
-  authHelpHint?: string
-  oauthProvider?: 'gitlab'
-  servers: ServerSpec[]
+  auth: CardAuth
+  server: ServerSpec
 }
 
 export interface ToolInfo {

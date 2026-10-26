@@ -25,68 +25,6 @@ export function IconPlug({ size = 16, className }: IconProps): JSX.Element {
   )
 }
 
-const CONTEXT7_ICON =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEoAAABLCAYAAADXjBHUAAAACXBIWXMAAAsTAAALEwEAmpwYAAABaWlDQ1BEaXNwbGF5IFAzAAB4nHWQvUvDUBTFT6tS0DqIDh0cMolD1NIKdnFoKxRFMFQFq1OafgltfCQpUnETVyn4H1jBWXCwiFRwcXAQRAcR3Zw6KbhoeN6XVNoi3sfl/Ticc7lcwBtQGSv2AijplpFMxKS11Lrke4OHnlOqZrKooiwK/v276/PR9d5PiFlNu3YQ2U9cl84ul3aeAlN//V3Vn8maGv3f1EGNGRbgkYmVbYsJ3iUeMWgp4qrgvMvHgtMunzuelWSc+JZY0gpqhrhJLKc79HwHl4plrbWD2N6f1VeXxRzqUcxhEyYYilBRgQQF4X/8044/ji1yV2BQLo8CLMpESRETssTz0KFhEjJxCEHqkLhz634PrfvJbW3vFZhtcM4v2tpCAzidoZPV29p4BBgaAG7qTDVUR+qh9uZywPsJMJgChu8os2HmwiF3e38M6Hvh/GMM8B0CdpXzryPO7RqFn4Er/QcXKWq8MSlPPgAABA5JREFUeAHtmzFME2EUgB+GQXCgGCSBpeiICRjERROKoYtG4kANC6kDasLCAgNLO+BcBxgYxIHiZhkgRJcahcgmJB1k1HaBBBLtomHTezXVu/+u9N3de03Q9yUM/cPlb7/+79279/9tap4bfwdKXZqtv2FQ6nIOFBIqioiKIqKiiKgoIiqKiIoioqKIqCgiKoqIiiKioog0Q0hil3th+cEU+GX78z5M5pZ8XZObmIX+7ij4JbGagcJhEcIQWhTS034J/FIKcE2kpTXQXHhdWDT0iKgoIqFDr3BYguK3Y0dIlKzXK7tbp16H/+OX7N4WbFm57TSS12Ou9xJkLpPQoson3+GRlZTzj9N/xqLWGy2f/IDFndfASbaO/NRIwpXDxl5mKl9kWFhCD7/lmc2sY+zZvSTErvRCo+jv7oF0POEYe/o2B4WDInDAlqMWrNVjhsWLxBREzl8AaXCO3MSMY2x9/yPM53PABWsyx7oIQ64KhmAqPgbS4BxmyM1urgAnrKIwaS58cOal6Vt3ob+rB6TALwPnsIMhx5GX7LCXB4s7bxyrCslY+UqK9EjCNVYv6QeBXRTeBbO77x1jmNQlVhWuJiwH7KAk7tWEiBScG1YiNUkODAE3nqtpj381ISKiCgclV/glB4eBmyGP8qNeQRoUEVEYfqWvR46xyPlW1roKuxbmnU5KEiL2rIePNiZ9jHmqzyowTUoCuamKmCivhHqty38vqRa4oihzciEmqlR2v+kgTbdaePWYzuSK8oLzcSYaoIEXhoaKamvhExVpkX+GtNPUPDf+E5S6aIeTiIoioqKIqCgiKooIywaoF1jneFXPXE/3yYGYa2z7y75YdS4mCh+AsWduBytnLlGpuHvHZfLVkiXqDLVZ/kXERLV5PK5whgX2vFxzClbrYqJ62jtcY1x7bEipfOSeM9IBUoiJikY6XWOYbLnw6ndFL3aCFGKivFoqXh8uKBuf3H15zn6XiYgoLA282rScOQrbzWbrtzJvRKb9IiLKqzcusde27rHbM3r1BkggImr65h3Ha876yc6qJd/c7bnfOwgSsIvCarzfaPxzHpawg+FnbuHjapY4RcMuytw+l1pNVXAL38x9KY+N0bCwisLt7UatpirVg2x2cEV5PQuGgU1U5YiP8U3iiTvJ1VQF737m6b7M6MNAJ4hrwSZqbWLGdXZyPr8GjQLnsocg7kwvJ/yff68FiyhcSfaQQ0nx5/OVsGgUONfvOf/eBTEEuY4chd6Fwbtc/kna93UYLvjB/IAHaoPc0QYX5kL/cuG/aLPoLxcaiIoiEroVXCwfB6qVpH65wDWXiW6pE9HQI6KiiKgoIiqKiIoioqKIqCgiKoqIiiKiooioKCIqiojVPWi6DUpdfgE8wFukKedIwQAAAABJRU5ErkJggg=='
-
-export function BrandGithub({ size = 22, className }: IconProps): JSX.Element {
-  return (
-    <svg width={size} height={size} className={className} viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="currentColor"
-        d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
-      />
-    </svg>
-  )
-}
-
-export function BrandGitlab({ size = 22, className }: IconProps): JSX.Element {
-  return (
-    <svg width={size} height={size} className={className} viewBox="0 0 24 24" aria-hidden>
-      <path fill="#e24329" d="M12 22.186l4.42-13.605H7.58L12 22.186z" />
-      <path fill="#fc6d26" d="M12 22.186L7.58 8.581H1.65L12 22.186z" />
-      <path fill="#fca326" d="M1.65 8.581L.167 13.145a.916.916 0 00.333 1.026L12 22.186 1.65 8.581z" />
-      <path fill="#e24329" d="M1.65 8.581h5.93L5.033.927a.458.458 0 00-.872 0L1.65 8.581z" />
-      <path fill="#fc6d26" d="M12 22.186l4.42-13.605h5.93L12 22.186z" />
-      <path fill="#fca326" d="M22.35 8.581l1.483 4.564a.916.916 0 01-.333 1.026L12 22.186 22.35 8.581z" />
-      <path fill="#e24329" d="M22.35 8.581h-5.93l2.547-7.654a.458.458 0 01.872 0l2.511 7.654z" />
-    </svg>
-  )
-}
-
-export function BrandContext7({ size = 22, className }: IconProps): JSX.Element {
-  return <img width={size} height={size} className={className} src={CONTEXT7_ICON} alt="" />
-}
-
-export function BrandLinear({ size = 22, className }: IconProps): JSX.Element {
-  return (
-    <svg width={size} height={size} className={className} viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="#5E6AD2"
-        d="M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z"
-      />
-    </svg>
-  )
-}
-
-export function BrandNeon({ size = 22, className }: IconProps): JSX.Element {
-  return (
-    <svg width={size} height={size} className={className} viewBox="0 0 24 24" aria-hidden>
-      <path fill="#34D59A" d="M24 0V24l-9.365-8.045V24H0V0ZM2.942 21.087h8.751V9.563l9.365 8.204V2.919L2.942 2.914Z" />
-    </svg>
-  )
-}
-
-export function BrandSupabase({ size = 22, className }: IconProps): JSX.Element {
-  return (
-    <svg width={size} height={size} className={className} viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="#3FCF8E"
-        d="M11.9 1.036c-.015-.986-1.26-1.41-1.874-.637L.764 12.05C-.33 13.427.65 15.455 2.409 15.455h9.579l.113 7.51c.014.985 1.259 1.408 1.873.636l9.262-11.653c1.093-1.375.113-3.403-1.645-3.403h-9.642z"
-      />
-    </svg>
-  )
-}
-
 export function IconLink({ size = 16, className }: IconProps): JSX.Element {
   return (
     <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>

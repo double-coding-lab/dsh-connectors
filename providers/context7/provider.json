@@ -1,0 +1,25 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "context7",
+  "name": "Context7",
+  "vendor": "Upstash",
+  "category": "知识检索",
+  "summary": "按库名与版本检索最新文档和代码示例，无需凭据。",
+  "examples": [
+    "用 Context7 查一下 React 19 的最新文档，给出 Hooks 用法示例",
+    "查 Next.js 15 App Router 的官方文档，按示例写一个页面",
+    "对比 Vue 3.5 与 React 19 在状态管理上的差异，引用官方文档",
+    "查一下 Prisma 最新版本的迁移用法，给出命令和示例"
+  ],
+  "tags": ["文档", "代码示例"],
+  "order": 60,
+  "server": {
+    "serverName": "context7",
+    "transport": "streamable-http",
+    "url": "https://mcp.context7.com/mcp"
+  },
+  "auth": {
+    "type": "none"
+  }
+}

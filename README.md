@@ -7,6 +7,7 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 已完成：
 
 - 插件骨架、侧栏面板、内置目录（GitHub / Linear / Neon / Supabase / GitLab.com / Context7）、搜索与分类。
+- Provider 数据化：新增 provider 只需 `providers/<id>/provider.json`（可选 `icon.svg`），OAuth 也由数据描述驱动，无厂商分支；契约与贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 内置连接器安装/删除、凭据本机存储、重启后恢复、工具数量展示。
 - 内置 token 型 provider：Linear（API Key，项目管理）、Neon / Supabase（API Key / PAT，数据库）；安装只写记录，随后在授权表单输入 token；关闭表单后卡片保留「授权」+ 已安装对勾。令牌输入框默认隐藏内容，右侧眼睛按钮可切换明文/密文，切换不改变已输入内容。
 - 已授权后可直接更新凭据，不必删除重装：token 卡片在「更多」菜单或详情底部提供「更新令牌」，卡片入口弹出独立的更新弹窗，详情入口在其上叠加二级弹窗；空白输入、旧令牌不回显，保存后原地替换。OAuth 卡片提供「重新授权」，点击后卡片状态立即从对勾切换为 loading，取消或失败保留旧授权。二级弹窗出现时一级弹窗的蒙版让位给二级，只保留最上层一层遮罩，避免背景越叠越暗。
@@ -23,7 +24,7 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 - 「更多」菜单包含去试试、更新令牌（token）、重新授权 / 取消授权（OAuth）、删除（内置）或删除连接器（自定义）。去试试按示例顺序轮询：第一次第一条、第二次第二条，序号存 localStorage，跨会话/刷新保留。
 - 加号是 28px 白色圆形按钮（0.5px 描边 + 轻阴影），卡片悬停时出现；鼠标移到加号上背景加深、阴影增强；安装中显示旋转 loading，鼠标移开也保持可见。
 - 连接/启用失败只在卡片内显示错误文案（最多两行，悬停看全文），不再出现页面级错误条；卡片开关在启用/停用处理中显示 spinner。
-- 输入框左侧以紧凑图标组显示已启用连接器：品牌图标与圆形背景同直径（24×24，无额外白圈/描边）；左侧图标在上层、右侧图标在后，相邻重叠 10px（约 42%），最多 3 个，超过显示 `+N`；`+N` 独立占位、不覆盖前一个图标；单个图标为 32×32 圆形，多个为 28 高胶囊，宽度由内容撑开。
+- 输入框左侧以紧凑图标组显示已启用连接器：多图标时品牌图标与圆形背景同直径 18×18，无额外白圈/描边；左侧图标在上层、右侧图标在后，相邻重叠 7px（约 39%），最多 3 个，超过显示 `+N`；`+N` 为 18×18 独立占位、与最后一个图标留 2px，不覆盖图标；单图标为 24×24（32×32 命中区），多图标为 28 高胶囊，宽度由内容撑开。
 - 静止只有图标，悬停出现浅灰底，背景宽度随图标数量动态变化，图标不位移；整组点击打开连接器浮层。
 - 浮层只负责启用/停用：已连接的显示开关；未安装显示「去连接」、已安装未授权显示「去授权」，点击统一打开侧栏连接器面板完成安装与授权，不再内联输入令牌；多字段凭据显示「未接入」。
 - 详情弹窗展示每个工具的名称与描述；默认预览 4 个，工具列表固定 240px 高并在内部滚动，不强行撑高弹窗。
@@ -57,9 +58,9 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 - 样式核对：卡片标题 14/500/20、描述 13/18 tertiary、标签 10/18；弹窗 560 宽/28 圆角/gap 20，标题 16/500/24，输入与按钮 40 高。
 - 详情头部：未连接 pill 位于 header 内、右边缘距关闭按钮 12px；Context7 已连接时 pill 仅「已连接」，下方工具区显示「可用工具 2」；内置连接器「删除」按钮计算色为 `rgb(236,19,19)`。
 - 侧栏图标：连接器入口改为插头 SVG（3 条 path：两脚、插头体、线缆），与「插件」pinwheel 区分。
-- GitHub PAT：卡片目录为 `authMode=bearer`；加号/详情安装只写记录并弹出 token 授权表单；空 token 时「连接」禁用。填入假 token 后连接超时并显示凭据错误，未落记录；真实 PAT 已连接并注册 46 个工具。已连接失败时的「重新连接」+ 空白 token 输入为同一套 `tokenEntry` 分支。
+- GitHub PAT：卡片目录为 `auth.type=bearer`；加号/详情安装只写记录并弹出 token 授权表单；空 token 时「连接」禁用。填入假 token 后连接超时并显示凭据错误，未落记录；真实 PAT 已连接并注册 46 个工具。已连接失败时的「重新连接」+ 空白 token 输入为同一套 `tokenEntry` 分支。
 - 安装/授权分离（token）：Linear 详情「安装」后卡片变为「未授权」+「授权」+已安装对勾，弹窗显示 `Linear API Key` 表单；关闭并刷新后仍是「授权/未授权」，不再显示「安装」。Neon 加号同样直接安装并弹出授权表单；测试记录已删除。
-- 目录 v2：6 张内置卡（GitHub / Linear / Neon / Supabase / GitLab.com / Context7），分类新增「项目管理」「数据库」；Linear 安装步骤显示 `Linear API Key`、创建链接与权限提示，Neon / Supabase 复用同一结构。
+- 目录：6 张内置卡（GitHub / Linear / Neon / Supabase / GitLab.com / Context7），分类新增「项目管理」「数据库」；Linear 安装步骤显示 `Linear API Key`、创建链接与权限提示，Neon / Supabase 复用同一结构。provider 改为按目录组织，OAuth 走通用元数据 + DCR/静态 clientId。
 - GitLab.com OAuth：真实授权已完成，GitLab MCP 注册 36 个工具；`POST /api/oauth/start` 完成元数据发现、动态客户端注册并通过系统默认浏览器打开（`opened=true`）；取消授权后流程回到未授权。回调非法 state、provider 错误、非法 redirectUri 均返回 400 与错误页。
 
 ## 结构
@@ -67,20 +68,36 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 ```
 src/
   index.ts             宿主入口：注入服务、恢复连接、注册 web 路由
-  host/catalog.ts      读取内置目录
+  host/catalog.ts      读取 providers 目录并组装内置目录
+  host/providers.ts    provider.json 契约校验、目录扫描与卡片映射
   host/errors.ts       ConnectError
   host/mcpServers.ts   mcpServers JSON 解析、校验与私网识别
-  host/oauth.ts        OAuth 元数据发现、动态注册、PKCE、code 交换与刷新
+  host/oauth.ts        OAuth 元数据发现、DCR、PKCE、code 交换与刷新
   host/openExternal.ts 用系统默认浏览器打开授权页
   host/connections.ts  loader 条目供给、连接生命周期、安装/授权编排、自定义连接器、工具计数
   host/store.ts        storage domain：连接记录与自定义连接器
   host/routes.ts       /dsh-connectors/api/*
   client/index.tsx     侧栏面板、卡片详情弹窗、导入/删除对话框（slots 注册）
-  client/icons.tsx     DSH 原生图标与连接器品牌图标
+  client/icons.tsx     DSH 原生图标
+  client/provider-icons.generated.ts  构建生成的 provider 图标 data URL
   shared/types.ts      卡片、连接与接口类型
-catalog/builtin.json   内置连接器卡片
-scripts/build-client.mjs  client 半打包（__ModuleLoader__ 工厂）
+providers/<id>/provider.json  内置连接器（唯一信源）
+providers/<id>/icon.svg       可选品牌图标（png / webp 也可）
+schema/provider.schema.json   provider 契约（JSON Schema）
+scripts/build-provider-icons.mjs  生成客户端图标映射
+scripts/check-providers.mjs       校验 provider 目录
+scripts/new-provider.mjs          生成新 provider 骨架
 ```
+
+## 新增 Provider
+
+```bash
+npm run provider:new -- acme --auth bearer --name "Acme"
+# 编辑 providers/acme/provider.json，放入可选 icon.svg
+npm run check
+```
+
+契约、auth 类型、OAuth 注册方式和 PR 检查清单见 [CONTRIBUTING.md](CONTRIBUTING.md)。内置 provider 只接受数据描述与静态图标，不允许携带可执行代码；本地 stdio / 内网地址继续走「自定义连接器」。
 
 ## 自定义连接器
 
@@ -112,7 +129,7 @@ scripts/build-client.mjs  client 半打包（__ModuleLoader__ 工厂）
 
 ## GitLab.com OAuth
 
-- 卡片 `authMode: oauth2-pkce`、`oauthProvider: gitlab`。安装与授权分离：`POST /api/connections` 只写入安装记录（`authorized=false`），不创建 loader 条目，也不探测工具。
+- 卡片 `auth.type: oauth2`（`registration: dcr`）。安装与授权分离：`POST /api/connections` 只写入安装记录（`authorized=false`），不创建 loader 条目，也不探测工具。
 - 入口：卡片加号点击即安装并自动发起授权；详情「安装」走同样的安装后授权流程，但保留弹窗展示进度。已安装未授权时，卡片和详情显示「授权」，点击可再次发起。
 - 点授权后宿主读取 protected-resource / authorization-server 元数据、动态注册客户端并生成 PKCE S256 授权 URL，再调用系统默认浏览器打开（Windows `rundll32`、macOS `open`、Linux `xdg-open`）；已在运行的浏览器会新开一个标签页。
 - 面板每 1.2 秒轮询 `/api/oauth/status`；授权中卡片按钮变为「取消授权」，弹窗内同样可取消；宿主删除 pending state 并停止流程，记录保持安装但未授权。浏览器未自动打开时，弹窗展示手动授权链接。
@@ -124,7 +141,7 @@ scripts/build-client.mjs  client 半打包（__ModuleLoader__ 工厂）
 
 ## GitHub PAT
 
-- 卡片 `authMode: bearer`，通过 `Authorization: Bearer <PAT>` 连接 `https://api.githubcopilot.com/mcp/`；不注册 OAuth App，不需要 client_id / secret / 后端。
+- 卡片 `auth.type: bearer`，通过 `Authorization: Bearer <PAT>` 连接 `https://api.githubcopilot.com/mcp/`；不注册 OAuth App，不需要 client_id / secret / 后端。
 - 点加号或详情「安装」只写安装记录（无 auth、不建 loader），随后弹出授权表单：`GitHub PAT` 输入框 +「创建 GitHub PAT」链接（预填 `repo,read:org,read:user`）+ 权限提示；token 只存宿主侧。
 - 关闭授权表单后卡片保留「授权」按钮和已安装对勾；重新打开面板仍是「未授权」，不会回到「安装」。点「授权」重新打开 token 表单。
 - 首次连接失败不落记录；已有连接失败时，详情弹窗显示「重新连接」和空白 token 输入框，可粘贴新 token 重试，避免只能删除重装。
