@@ -21,7 +21,7 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 - 侧栏「连接器」入口图标使用插头，和「插件」的 pinwheel 区分。
 - 悬停后状态图标保留并以 260ms 缓动左移让位，右侧渐显「更多 + 启用开关」，整组始终右对齐；控制区在卡片内裁剪，动画过程不会溢出卡片。
 - 卡片描述最多两行，超出显示省略号；仅当文本被截断时，悬停才在下方显示深色 tooltip 展示全文。
-- 「更多」菜单包含去试试、更新令牌（token）、重新授权 / 取消授权（OAuth）、删除（内置）或删除连接器（自定义）。去试试按示例顺序轮询：第一次第一条、第二次第二条，序号存 localStorage，跨会话/刷新保留。
+- 「更多」菜单包含去试试、更新令牌（token）、重新授权 / 取消授权（OAuth）、断开（自定义）、删除（内置与自定义统一为「删除」）。去试试按示例顺序轮询：第一次第一条、第二次第二条，序号存 localStorage，跨会话/刷新保留。去试试按示例顺序轮询：第一次第一条、第二次第二条，序号存 localStorage，跨会话/刷新保留。
 - 加号是 28px 白色圆形按钮（0.5px 描边 + 轻阴影），卡片悬停时出现；鼠标移到加号上背景加深、阴影增强；安装中显示旋转 loading，鼠标移开也保持可见。
 - 连接/启用失败只在卡片内显示错误文案（最多两行，悬停看全文），不再出现页面级错误条；卡片开关在启用/停用处理中显示 spinner。
 - 输入框左侧以紧凑图标组显示已启用连接器：多图标时品牌图标与圆形背景同直径 18×18，无额外白圈/描边；左侧图标在上层、右侧图标在后，相邻重叠 7px（约 39%），最多 3 个，超过显示 `+N`；`+N` 为 18×18 独立占位、与最后一个图标留 2px，不覆盖图标；单图标为 24×24（32×32 命中区），多图标为 28 高胶囊，宽度由内容撑开。
@@ -108,7 +108,12 @@ npm run check        # typecheck + build + provider/instance 校验与测试
   "mcpServers": {
     "my-http-server": {
       "url": "https://example.com/mcp",
-      "headers": { "Authorization": "Bearer <token>" }
+      "headers": { "Authorization": "Bearer <token>" },
+      "x-dsh": {
+        "description": "查询最新接口文档与示例",
+        "category": "知识检索",
+        "examples": ["用 my-http-server 查一下最新的接口文档"]
+      }
     },
     "my-stdio-server": {
       "command": "npx",
@@ -121,6 +126,11 @@ npm run check        # typecheck + build + provider/instance 校验与测试
 
 规则：
 
+- 导入弹窗提供「描述」「类别」「示例提示词（每行一条）」；单个 Server 的 `x-dsh` 会以占位提示展示，表单留空时使用 `x-dsh`，填写则覆盖。多 Server 时填写表单会覆盖所有 Server 的 `x-dsh`，留空则各 Server 使用自己的值。描述与示例均可留空。
+- 类别可输入新名称，内置类别与同名自定义类别会合并；`全部`、`自定义` 为保留名，来源仍用「自定义」badge 表示。
+- 主按钮「导入并连接」只对单个 server 自动安装并连接；多个 server 时请用「仅导入」，导入后分别连接。
+- 自定义卡片在未安装态可从「更多」直接删除；已连接时「更多」提供「断开」与「删除」：断开只移除连接和工具、保留连接器定义，删除会一并清理连接记录、loader 条目和连接器定义。详情弹窗内同样保留这两个入口。
+- 没有示例的卡片不再显示负向提示，「试试这样用」整节直接隐藏。
 - `serverName` 只允许 1–32 位字母、数字、下划线或短横线，且不能与内置或已有自定义连接冲突。
 - `url` 与 `command` 二选一；`headers` / `env` 的值只保存在宿主侧 storage domain，目录与连接接口不回传。
 - `localhost`、内网 IP、`.local` / `.internal` 地址首次提交返回 `private_url_confirmation`，面板勾选确认后重试。
@@ -178,7 +188,7 @@ npm run check        # typecheck + build
 - `POST /dsh-connectors/api/oauth/cancel` — `{ flowId }`；取消 pending 授权，记录保持安装
 - `GET /dsh-connectors/api/oauth/callback` — GitLab 授权回调；完成 token 交换、建连与工具探测，返回结果页
 - `DELETE /dsh-connectors/api/connections/:connectorId/oauth` — 取消授权：清空 token、移除 loader 条目，保留安装记录
-- `POST /dsh-connectors/api/custom-connectors` — `{ json, allowPrivate? }`，导入一个或多个自定义 MCP Server
+- `POST /dsh-connectors/api/custom-connectors` — `{ json, allowPrivate?, description?, category?, examples? }`，导入一个或多个自定义 MCP Server；非空的批量 description/category/examples 覆盖 `x-dsh`，留空则使用 `x-dsh`
 - `DELETE /dsh-connectors/api/custom-connectors/:connectorId` — 删除自定义连接器；若已连接会先注销工具并删除连接记录
 
 ## 依赖边界

@@ -55,6 +55,9 @@ export const customConnectorSchema = z.object({
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
   cwd: z.string().optional(),
+  category: z.string().min(1).max(64).optional(),
+  description: z.string().min(1).max(120).optional(),
+  examples: z.array(z.string().min(1)).max(6).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 })

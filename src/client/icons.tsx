@@ -152,6 +152,21 @@ export function IconEye({ size = 16, className }: IconProps): JSX.Element {
   )
 }
 
+export function IconHelp({ size = 14, className }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1" />
+      <path
+        d="M6.35 6.1A1.65 1.65 0 1 1 8.7 7.5c-.45.28-.7.6-.7 1.05v.2"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+      />
+      <circle cx="8" cy="11.2" r="0.75" fill="currentColor" />
+    </svg>
+  )
+}
+
 export function IconEyeOff({ size = 16, className }: IconProps): JSX.Element {
   return (
     <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden>

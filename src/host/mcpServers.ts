@@ -1,4 +1,5 @@
 import { ConnectError } from './errors.js'
+import { MAX_EXAMPLES } from '../shared/categories.js'
 
 export type CustomTransport = 'streamable-http' | 'stdio'
 
@@ -12,6 +13,9 @@ export interface McpServerSeed {
   args?: string[]
   env?: Record<string, string>
   cwd?: string
+  category?: string
+  description?: string
+  examples?: string[]
 }
 
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/
@@ -52,6 +56,29 @@ function stringArray(value: unknown, label: string): string[] | undefined {
   })
 }
 
+function parseXdsh(raw: Record<string, unknown>, serverName: string): { category?: string; description?: string; examples?: string[] } {
+  const metadata = raw['x-dsh']
+  if (metadata === undefined || metadata === null) return {}
+  if (!isRecord(metadata)) {
+    throw new ConnectError('invalid_server_config', `${serverName}.x-dsh 必须是对象`)
+  }
+  const category = optionalString(metadata.category, `${serverName}.x-dsh.category`)
+  const description = optionalString(metadata.description, `${serverName}.x-dsh.description`)
+  const rawExamples = stringArray(metadata.examples, `${serverName}.x-dsh.examples`)
+  let examples: string[] | undefined
+  if (rawExamples !== undefined) {
+    examples = rawExamples.map(item => item.trim()).filter(item => item !== '')
+    if (examples.length > MAX_EXAMPLES) {
+      throw new ConnectError('invalid_examples', `${serverName}.x-dsh.examples 最多 ${MAX_EXAMPLES} 条`)
+    }
+  }
+  return {
+    ...(category === undefined ? {} : { category }),
+    ...(description === undefined ? {} : { description }),
+    ...(examples === undefined ? {} : { examples }),
+  }
+}
+
 function parseServer(serverName: string, raw: unknown): McpServerSeed {
   if (!SERVER_NAME_RE.test(serverName)) {
     throw new ConnectError(
@@ -62,6 +89,7 @@ function parseServer(serverName: string, raw: unknown): McpServerSeed {
   if (!isRecord(raw)) {
     throw new ConnectError('invalid_server_config', `${serverName} 的配置必须是对象`)
   }
+  const metadata = parseXdsh(raw, serverName)
 
   const url = optionalString(raw.url, `${serverName}.url`)
   const command = optionalString(raw.command, `${serverName}.command`)
@@ -86,6 +114,9 @@ function parseServer(serverName: string, raw: unknown): McpServerSeed {
       transport: 'streamable-http',
       url,
       ...(headers === undefined ? {} : { headers }),
+      ...(metadata.category === undefined ? {} : { category: metadata.category }),
+      ...(metadata.description === undefined ? {} : { description: metadata.description }),
+      ...(metadata.examples === undefined ? {} : { examples: metadata.examples }),
     }
   }
 
@@ -103,6 +134,9 @@ function parseServer(serverName: string, raw: unknown): McpServerSeed {
     ...(args === undefined ? {} : { args }),
     ...(env === undefined ? {} : { env }),
     ...(cwd === undefined ? {} : { cwd }),
+    ...(metadata.category === undefined ? {} : { category: metadata.category }),
+    ...(metadata.description === undefined ? {} : { description: metadata.description }),
+    ...(metadata.examples === undefined ? {} : { examples: metadata.examples }),
   }
 }
 

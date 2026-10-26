@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import { z } from 'zod'
 
 import type { ConnectorCard, ServerSpec } from '../shared/types.js'
+import { BUILTIN_CATEGORIES } from '../shared/categories.js'
 
-export const PROVIDER_CATEGORIES = ['开发工具', '项目管理', '数据库', '知识检索', '办公协作', '其他'] as const
+export const PROVIDER_CATEGORIES = BUILTIN_CATEGORIES
 
 const httpsUrl = z.string().url().refine(value => value.startsWith('https://'), '必须使用 https 地址')
 

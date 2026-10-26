@@ -1,6 +1,7 @@
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 
 import type { CardAuth, ConnectorCard, ConnectionView, ToolInfo } from '../shared/types.js'
+import { MAX_EXAMPLES, resolveCategory, validateCategory } from '../shared/categories.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
 import { ConnectError } from './errors.js'
 import { resolveInstanceMcpUrl } from './instanceUrl.js'
@@ -679,9 +680,37 @@ export class ConnectionService {
     }
   }
 
-  async importCustom(text: string, allowPrivate: boolean): Promise<ConnectorCard[]> {
+  async importCustom(
+    text: string,
+    allowPrivate: boolean,
+    options: { category?: string; description?: string; examples?: string[] } = {},
+  ): Promise<ConnectorCard[]> {
     const seeds = parseMcpServers(text)
     assertPrivateUrlsAllowed(seeds, allowPrivate)
+
+    if (options.category !== undefined) {
+      const problem = validateCategory(options.category)
+      if (problem !== undefined) throw new ConnectError('invalid_category', problem)
+    }
+    const batchDescription = options.description?.trim()
+    if (batchDescription !== undefined && batchDescription !== '' && Array.from(batchDescription).length > 120) {
+      throw new ConnectError('invalid_description', '描述最多 120 字')
+    }
+    const batchExamples = options.examples === undefined
+      ? undefined
+      : options.examples.map(item => item.trim()).filter(item => item !== '')
+    if (batchExamples !== undefined && batchExamples.length > MAX_EXAMPLES) {
+      throw new ConnectError('invalid_examples', `示例提示词最多 ${MAX_EXAMPLES} 条`)
+    }
+    const categoryOverride = options.category === undefined || options.category.trim() === ''
+      ? undefined
+      : options.category
+    const descriptionOverride = batchDescription === undefined || batchDescription === ''
+      ? undefined
+      : batchDescription
+    const examplesOverride = batchExamples === undefined || batchExamples.length === 0
+      ? undefined
+      : batchExamples
 
     const customTable = await this.customTable()
     const connections = await this.table()
@@ -702,6 +731,20 @@ export class ConnectionService {
     const now = Date.now()
     const cards: ConnectorCard[] = []
     for (const seed of seeds) {
+      const rawCategory = categoryOverride ?? seed.category
+      if (rawCategory !== undefined) {
+        const problem = validateCategory(rawCategory)
+        if (problem !== undefined) {
+          throw new ConnectError('invalid_category', `${seed.serverName}: ${problem}`)
+        }
+      }
+      const category = resolveCategory(rawCategory)
+      const rawDescription = descriptionOverride ?? seed.description
+      const description = rawDescription?.trim()
+      if (description !== undefined && description !== '' && Array.from(description).length > 120) {
+        throw new ConnectError('invalid_description', `${seed.serverName}: 描述最多 120 字`)
+      }
+      const examples = examplesOverride ?? seed.examples ?? []
       const record: CustomConnectorRecord = {
         key: seed.connectorId,
         connectorId: seed.connectorId,
@@ -714,6 +757,9 @@ export class ConnectionService {
         args: seed.args,
         env: seed.env,
         cwd: seed.cwd,
+        category,
+        ...(description === undefined || description === '' ? {} : { description }),
+        ...(examples.length === 0 ? {} : { examples }),
         createdAt: now,
         updatedAt: now,
       }
@@ -802,12 +848,14 @@ export class ConnectionService {
     return {
       id: record.connectorId,
       name: record.name,
-      vendor: stdio ? 'stdio' : 'Streamable HTTP',
-      category: '自定义',
-      summary: stdio
+      vendor: '自定义',
+      category: resolveCategory(record.category),
+      summary: record.description ?? (stdio
         ? '通过 mcpServers 导入的本地 stdio MCP Server。'
-        : '通过 mcpServers 导入的 Streamable HTTP MCP Server。',
-      tags: ['自定义', record.transport],
+        : '通过 mcpServers 导入的 Streamable HTTP MCP Server。'),
+      ...(record.description === undefined ? {} : { description: record.description }),
+      ...(record.examples === undefined ? {} : { examples: record.examples }),
+      tags: ['自定义', resolveCategory(record.category), record.transport],
       published: true,
       auth: { type: 'none' },
       source: 'custom',

@@ -4,8 +4,9 @@ import { createPortal } from 'react-dom'
 
 import type { CatalogPayload, ConnectionView, ConnectorCard, ConnectionsPayload, CustomConnectorsPayload, OAuthStartPayload, OAuthStatusPayload, ToolInfo } from '../shared/types.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
-import { IconAlert, IconCheck, IconChevronDown, IconClose, IconCopy, IconEye, IconEyeOff, IconLink, IconMore, IconPlay, IconPlug, IconPlus, IconRefresh, IconSearch, IconTrash } from './icons.js'
+import { IconAlert, IconCheck, IconChevronDown, IconClose, IconCopy, IconEye, IconEyeOff, IconHelp, IconLink, IconMore, IconPlay, IconPlug, IconPlus, IconRefresh, IconSearch, IconTrash } from './icons.js'
 import { PROVIDER_ICONS } from './provider-icons.generated.js'
+import { BUILTIN_CATEGORIES, canonicalizeCardCategories, parseExampleLines } from '../shared/categories.js'
 
 export const inject: string[] = []
 
@@ -17,7 +18,12 @@ const MCP_SERVERS_PLACEHOLDER = `{
   "mcpServers": {
     "my-server": {
       "url": "https://example.com/mcp",
-      "headers": { "Authorization": "Bearer ..." }
+      "headers": { "Authorization": "Bearer ..." },
+      "x-dsh": {
+        "description": "查询仓库结构与文档",
+        "category": "知识检索",
+        "examples": ["用 my-server 查一下最新文档"]
+      }
     }
   }
 }`
@@ -204,6 +210,19 @@ function tokenLabel(card: ConnectorCard): string {
 function tokenHelp(card: ConnectorCard): { url: string; label: string; hint?: string } | undefined {
   const auth = card.auth
   return auth.type === 'bearer' || auth.type === 'header' ? auth.help : undefined
+}
+
+function Spinner({ inline = false }: { inline?: boolean }): JSX.Element {
+  return (
+    <svg
+      className={inline ? 'dshc-spinner dshc-spinner-inline' : 'dshc-spinner'}
+      viewBox="0 0 16 16"
+      aria-hidden
+    >
+      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity=".18" strokeWidth="1.75" />
+      <path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -549,7 +568,7 @@ function ConnectorPopover(): JSX.Element | null {
                         ? (
                             pending
                               ? <span className="dshc-dock-toggle" role="status" aria-label="处理中">
-                                  <span className="dshc-spinner dshc-spinner-inline" aria-hidden />
+                                  <Spinner inline />
                                 </span>
                               : <button
                                   type="button"
@@ -629,7 +648,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
           request<CatalogPayload>(`${ROUTE_PREFIX}/api/catalog`),
           request<ConnectionsPayload>(`${ROUTE_PREFIX}/api/connections`),
         ])
-        setCards(catalog.value.cards)
+        setCards(canonicalizeCardCategories(catalog.value.cards))
         const merged = Object.fromEntries(list.value.connections.map(item => [item.connectorId, item]))
         setConnections(merged)
         if (Object.values(merged).some(item => item.authorized && item.error === undefined && item.tools.length === 0)) {
@@ -645,7 +664,23 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
 
   useEffect(load, [])
 
-  const categories = useMemo(() => ['全部', ...Array.from(new Set(cards.map(card => card.category)))], [cards])
+  const categories = useMemo(() => {
+    const present = new Set(cards.map(card => card.category))
+    const builtinSet = new Set<string>(BUILTIN_CATEGORIES)
+    const builtin = BUILTIN_CATEGORIES.filter(category => present.has(category))
+    const custom = [...present]
+      .filter(category => !builtinSet.has(category))
+      .sort((left, right) => left.localeCompare(right, 'zh-CN'))
+    return ['全部', ...builtin, ...custom]
+  }, [cards])
+
+  const categoryOptions = useMemo(() => {
+    const builtinSet = new Set<string>(BUILTIN_CATEGORIES)
+    const custom = [...new Set(
+      cards.map(card => card.category).filter(category => !builtinSet.has(category)),
+    )].sort((left, right) => left.localeCompare(right, 'zh-CN'))
+    return [...BUILTIN_CATEGORIES, ...custom]
+  }, [cards])
 
   useEffect(() => {
     if (!categories.includes(category)) setCategory('全部')
@@ -895,13 +930,20 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
     })()
   }
 
-  const onImported = (imported: ConnectorCard[]): void => {
+  const onImported = (imported: ConnectorCard[], connectNow: boolean): void => {
+    const canonical = canonicalizeCardCategories(imported)
     setCards(previous => {
       const existing = new Set(previous.map(card => card.id))
-      return [...previous, ...imported.filter(card => !existing.has(card.id))]
+      return canonicalizeCardCategories([
+        ...previous,
+        ...canonical.filter(card => !existing.has(card.id)),
+      ])
     })
-    setCategory('自定义')
+    if (canonical[0] !== undefined) setCategory(canonical[0].category)
     notifyConnectionsChanged()
+    if (connectNow && canonical[0] !== undefined && canonical.length === 1) {
+      void connect(canonical[0], undefined, 'page')
+    }
   }
 
   const removeCustom = (card: ConnectorCard): void => {
@@ -1101,6 +1143,10 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
               installRecord(dialogCard, 'dialog')
               return
             }
+            if (dialogCard.auth.type === 'none') {
+              void connect(dialogCard, undefined, 'dialog')
+              return
+            }
             setDialogError(null)
             setDialogInstall(true)
           }}
@@ -1146,6 +1192,7 @@ function Panel({ startTrial }: PanelProps): JSX.Element {
       {customOpen && (
         <CustomConnectorDialog
           onClose={() => setCustomOpen(false)}
+          categoryOptions={categoryOptions}
           onImported={onImported}
         />
       )}
@@ -1261,6 +1308,35 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
         : !enabled
           ? '，已停用'
           : toolCount > 0 ? `，已连接，${toolCount} 个工具` : '，已连接，正在注册工具'
+  const deleteItem = (
+    <button
+      type="button"
+      role="menuitem"
+      className="dshc-menu-item dshc-menu-item-danger"
+      onClick={() => {
+        setMenuOpen(false)
+        if (onDelete !== undefined) onDelete()
+        else onDisconnect()
+      }}
+    >
+      <IconTrash size={14} />
+      删除
+    </button>
+  )
+  const disconnectItem = onDelete === undefined ? null : (
+    <button
+      type="button"
+      role="menuitem"
+      className="dshc-menu-item"
+      onClick={() => {
+        setMenuOpen(false)
+        onDisconnect()
+      }}
+    >
+      <IconPlug size={14} />
+      断开
+    </button>
+  )
 
   return (
     <>
@@ -1303,19 +1379,43 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
       <div className="dshc-card-foot">
         <span className="dshc-badge">{card.category}</span>
         {connection === undefined ? (
-          <button
-            type="button"
-            className={installing ? `${actionClass} dshc-card-action-loading` : actionClass}
-            title={installing ? '安装中…' : '安装'}
-            aria-label={installing ? `正在安装 ${card.name}` : `安装 ${card.name}`}
-            disabled={installing}
-            onClick={event => {
-              event.stopPropagation()
-              onInstall()
-            }}
-          >
-            {installing ? <span className="dshc-spinner" aria-hidden /> : <IconPlus size={16} />}
-          </button>
+          <span className="dshc-card-install-actions">
+            {onDelete !== undefined && (
+              <span className="dshc-card-more-wrap dshc-card-more-float" ref={menuRef}>
+                <button
+                  type="button"
+                  className="dshc-card-more"
+                  aria-label={`${card.name} 更多操作`}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  onClick={event => {
+                    event.stopPropagation()
+                    setMenuOpen(current => !current)
+                  }}
+                >
+                  <IconMore size={16} />
+                </button>
+                {menuOpen && (
+                  <span className="dshc-menu" role="menu" onClick={event => event.stopPropagation()}>
+                    {deleteItem}
+                  </span>
+                )}
+              </span>
+            )}
+            <button
+              type="button"
+              className={installing ? `${actionClass} dshc-card-action-loading` : actionClass}
+              title={installing ? '安装中…' : '安装'}
+              aria-label={installing ? `正在安装 ${card.name}` : `安装 ${card.name}`}
+              disabled={installing}
+              onClick={event => {
+                event.stopPropagation()
+                onInstall()
+              }}
+            >
+              {installing ? <Spinner /> : <IconPlus size={16} />}
+            </button>
+          </span>
         ) : unauthorized ? (
           <span className="dshc-card-auth-actions">
             <button
@@ -1328,7 +1428,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                 else onAuthorize()
               }}
             >
-              {authorizing && <span className="dshc-spinner dshc-spinner-inline" aria-hidden />}
+              {authorizing && <Spinner inline />}
               {authorizing ? '取消授权' : '授权'}
             </button>
             <span className="dshc-card-installed" role="img" aria-label="已安装，待授权" title="已安装，待授权">
@@ -1350,33 +1450,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
               </button>
               {menuOpen && (
                 <span className="dshc-menu" role="menu" onClick={event => event.stopPropagation()}>
-                  {onDelete !== undefined ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="dshc-menu-item dshc-menu-item-danger"
-                      onClick={() => {
-                        setMenuOpen(false)
-                        onDelete()
-                      }}
-                    >
-                      <IconTrash size={14} />
-                      删除连接器
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="dshc-menu-item dshc-menu-item-danger"
-                      onClick={() => {
-                        setMenuOpen(false)
-                        onDisconnect()
-                      }}
-                    >
-                      <IconTrash size={14} />
-                      删除
-                    </button>
-                  )}
+                  {disconnectItem}
+                  {deleteItem}
                 </span>
               )}
             </span>
@@ -1385,7 +1460,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
           <span className="dshc-card-actions">
             <span className={`${actionClass} dshc-card-status`} title={authorizing ? '授权中…' : actionText} aria-hidden>
               {authorizing
-                ? <span className="dshc-spinner" aria-hidden />
+                ? <Spinner />
                 : error !== undefined
                   ? <IconAlert size={16} />
                   : <IconCheck size={16} />}
@@ -1462,39 +1537,14 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                         取消授权
                       </button>
                     )}
-                    {onDelete !== undefined ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="dshc-menu-item dshc-menu-item-danger"
-                        onClick={() => {
-                          setMenuOpen(false)
-                          onDelete()
-                        }}
-                      >
-                        <IconTrash size={14} />
-                        删除连接器
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="dshc-menu-item dshc-menu-item-danger"
-                        onClick={() => {
-                          setMenuOpen(false)
-                          onDisconnect()
-                        }}
-                      >
-                        <IconTrash size={14} />
-                        删除
-                      </button>
-                    )}
+                    {disconnectItem}
+                    {deleteItem}
                   </span>
                 )}
               </span>
               {togglePending
                 ? <span className="dshc-card-toggle" role="status" aria-label="处理中">
-                    <span className="dshc-spinner" aria-hidden />
+                    <Spinner />
                   </span>
                 : <button
                     type="button"
@@ -1772,9 +1822,6 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
               <a className="dshc-link" href={authorizeLink} target="_blank" rel="noreferrer">点此授权</a>
             </p>
           )}
-          {showingInstall && !needsToken && !oauth && (
-            <p className="dshc-dialog-hint">安装后会接入 MCP 服务，工具会出现在 Agent 中。</p>
-          )}
           {error !== null && <p className="dshc-dialog-error">{error}</p>}
 
           {toolDetails.length > 0 && (
@@ -1829,7 +1876,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
           {disabled && <p className="dshc-dialog-hint">已停用，启用后会重新注册工具。</p>}
           {connected && toolDetails.length === 0 && <p className="dshc-dialog-hint">正在注册工具…</p>}
 
-          {examples.length > 0 ? (
+          {examples.length > 0 && (
             <section className="dshc-examples">
               <h3>试试这样用</h3>
               <div className="dshc-example-list">
@@ -1875,15 +1922,13 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                 ))}
               </div>
             </section>
-          ) : (
-            <p className="dshc-dialog-hint">这个自定义连接器没有预置示例；连接后可在 Agent 中直接调用它的工具。</p>
           )}
         </div>
 
         <div className="dshc-dialog-actions">
           {onDelete !== undefined && (
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost dshc-btn-danger" disabled={busy} onClick={onDelete}>
-              删除连接器
+              删除
             </button>
           )}
           {oauth && connection?.authorized === true && !authorizing && (
@@ -1898,7 +1943,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                   取消授权
                 </button>
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled>
-                  <span className="dshc-spinner" aria-hidden />
+                  <Spinner />
                   授权中…
                 </button>
               </>
@@ -1910,7 +1955,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                     取消授权
                   </button>
                   <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled>
-                    <span className="dshc-spinner" aria-hidden />
+                    <Spinner />
                     授权中…
                   </button>
                 </>
@@ -1927,7 +1972,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                         disabled={busy || instanceUrl.trim() === ''}
                         onClick={() => onConfigureInstance(instanceUrl.trim())}
                       >
-                        {pending && <span className="dshc-spinner" aria-hidden />}
+                        {pending && <Spinner />}
                         {pending ? '配置中…' : '配置并授权'}
                       </button>
                     ) : (
@@ -2021,7 +2066,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                     disabled={busy}
                     onClick={onInstallOAuth}
                   >
-                    {pending && <span className="dshc-spinner" aria-hidden />}
+                    {pending && <Spinner />}
                     {pending ? '安装中…' : '安装'}
                   </button>
                 ) : (
@@ -2031,7 +2076,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                     disabled={busy || (needsToken && token.trim() === '')}
                     onClick={() => onConnect(needsToken ? token : undefined)}
                   >
-                    {pending && <span className="dshc-spinner" aria-hidden />}
+                    {pending && <Spinner />}
                     {pending ? (needsToken ? '连接中…' : '安装中…') : (needsToken ? '连接' : '安装')}
                   </button>
                 )}
@@ -2048,7 +2093,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, aut
                   disabled={busy}
                   onClick={onBeginInstall}
                 >
-                  {pending && <span className="dshc-spinner" aria-hidden />}
+                  {pending && <Spinner />}
                   {pending ? '安装中…' : '安装'}
                 </button>
               </>
@@ -2169,7 +2214,7 @@ function CredentialDialog({ card, saving, error, onClose, onSubmit }: Credential
               disabled={saving || token.trim() === ''}
               onClick={submit}
             >
-              {saving && <span className="dshc-spinner" aria-hidden />}
+              {saving && <Spinner />}
               {saving ? '保存中…' : '保存'}
             </button>
           </span>
@@ -2181,34 +2226,162 @@ function CredentialDialog({ card, saving, error, onClose, onSubmit }: Credential
 
 interface CustomDialogProps {
   onClose: () => void
-  onImported: (connectors: ConnectorCard[]) => void
+  categoryOptions: string[]
+  onImported: (connectors: ConnectorCard[], connectNow: boolean) => void
 }
 
-function CustomConnectorDialog({ onClose, onImported }: CustomDialogProps): JSX.Element {
+function CustomConnectorDialog({ onClose, categoryOptions, onImported }: CustomDialogProps): JSX.Element {
   const [json, setJson] = useState('')
+  const [description, setDescription] = useState('')
+  const [category, setCategory] = useState('')
+  const [examples, setExamples] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [privateWarning, setPrivateWarning] = useState(false)
   const [privateConfirmed, setPrivateConfirmed] = useState(false)
+  const [categoryOpen, setCategoryOpen] = useState(false)
+  const [categoryMenu, setCategoryMenu] = useState<{ left: number; top: number; width: number } | null>(null)
+  const [helpTip, setHelpTip] = useState<{ left: number; top: number; above: boolean } | null>(null)
+  const categoryRef = useRef<HTMLDivElement>(null)
+  const categoryMenuRef = useRef<HTMLDivElement>(null)
+  const categoryInputRef = useRef<HTMLInputElement>(null)
+  const helpHideTimerRef = useRef<number | null>(null)
+  const helpHoverRef = useRef(false)
+  const parsedJson = useMemo<{
+    count: number
+    meta: { description?: string; category?: string; examples?: string[] } | null
+  }>(() => {
+    try {
+      const parsed = JSON.parse(json) as { mcpServers?: unknown }
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { count: 0, meta: null }
+      }
+      const servers = parsed.mcpServers
+      if (servers === null || typeof servers !== 'object' || Array.isArray(servers)) {
+        return { count: 0, meta: null }
+      }
+      const entries = Object.entries(servers)
+      if (entries.length !== 1) return { count: entries.length, meta: null }
+      const server = entries[0]?.[1]
+      if (server === null || typeof server !== 'object' || Array.isArray(server)) {
+        return { count: 1, meta: null }
+      }
+      const xdsh = (server as Record<string, unknown>)['x-dsh']
+      if (xdsh === null || typeof xdsh !== 'object' || Array.isArray(xdsh)) {
+        return { count: 1, meta: null }
+      }
+      const record = xdsh as Record<string, unknown>
+      const description = typeof record.description === 'string' && record.description.trim() !== ''
+        ? record.description.trim()
+        : undefined
+      const category = typeof record.category === 'string' && record.category.trim() !== ''
+        ? record.category.trim()
+        : undefined
+      const examples = Array.isArray(record.examples)
+        ? record.examples
+          .filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+          .map(item => item.trim())
+        : undefined
+      return {
+        count: 1,
+        meta: {
+          ...(description === undefined ? {} : { description }),
+          ...(category === undefined ? {} : { category }),
+          ...(examples === undefined || examples.length === 0 ? {} : { examples }),
+        },
+      }
+    } catch {
+      return { count: 0, meta: null }
+    }
+  }, [json])
+  const serverCount = parsedJson.count
+  const jsonMeta = parsedJson.meta
+  const hasJsonMeta = jsonMeta !== null
+    && (jsonMeta.description !== undefined || jsonMeta.category !== undefined || jsonMeta.examples !== undefined)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !pending) onClose()
+      if (event.key !== 'Escape' || pending) return
+      if (categoryOpen) {
+        setCategoryOpen(false)
+        return
+      }
+      onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, pending])
+  }, [onClose, pending, categoryOpen])
 
-  const submit = (): void => {
+  useEffect(() => {
+    if (!categoryOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node
+      if (categoryRef.current?.contains(target) === true || categoryMenuRef.current?.contains(target) === true) return
+      setCategoryOpen(false)
+    }
+    const close = (): void => setCategoryOpen(false)
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [categoryOpen])
+
+  const openCategoryMenu = (): void => {
+    const rect = categoryInputRef.current?.getBoundingClientRect()
+    if (rect !== undefined) {
+      setCategoryMenu({ left: rect.left, top: rect.bottom + 4, width: rect.width })
+    }
+    setCategoryOpen(true)
+  }
+
+  const cancelHelpTipHide = (): void => {
+    if (helpHideTimerRef.current !== null) {
+      window.clearTimeout(helpHideTimerRef.current)
+      helpHideTimerRef.current = null
+    }
+  }
+
+  const showHelpTip = (element: HTMLElement): void => {
+    cancelHelpTipHide()
+    const rect = element.getBoundingClientRect()
+    const width = Math.min(380, window.innerWidth - 32)
+    const left = Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
+    const above = rect.bottom + 220 > window.innerHeight
+    setHelpTip({ left, top: above ? rect.top - 8 : rect.bottom + 8, above })
+  }
+
+  const hideHelpTipSoon = (): void => {
+    if (helpHoverRef.current) return
+    cancelHelpTipHide()
+    helpHideTimerRef.current = window.setTimeout(() => {
+      helpHideTimerRef.current = null
+      if (!helpHoverRef.current) setHelpTip(null)
+    }, 140)
+  }
+
+  useEffect(() => () => cancelHelpTipHide(), [])
+
+  const submit = (connectNow: boolean): void => {
     setPending(true)
     setError(null)
+    const exampleLines = parseExampleLines(examples)
     void (async () => {
       try {
         const response = await request<CustomConnectorsPayload>(`${ROUTE_PREFIX}/api/custom-connectors`, {
           method: 'POST',
-          body: JSON.stringify({ json, allowPrivate: privateWarning }),
+          body: JSON.stringify({
+            json,
+            allowPrivate: privateWarning,
+            ...(description.trim() === '' ? {} : { description: description.trim() }),
+            ...(category.trim() === '' ? {} : { category: category.trim() }),
+            ...(exampleLines.length === 0 ? {} : { examples: exampleLines }),
+          }),
         })
-        onImported(response.value.connectors)
+        onImported(response.value.connectors, connectNow)
         onClose()
       } catch (cause) {
         if (cause instanceof ApiError && cause.code === 'private_url_confirmation') {
@@ -2238,7 +2411,9 @@ function CustomConnectorDialog({ onClose, onImported }: CustomDialogProps): JSX.
         aria-label="自定义连接器"
         onSubmit={event => {
           event.preventDefault()
-          if (!pending && json.trim() !== '' && (!privateWarning || privateConfirmed)) submit()
+          if (!pending && json.trim() !== '' && (!privateWarning || privateConfirmed)) {
+            submit(serverCount === 1)
+          }
         }}
       >
         <div className="dshc-dialog-head">
@@ -2249,8 +2424,21 @@ function CustomConnectorDialog({ onClose, onImported }: CustomDialogProps): JSX.
         </div>
         <div className="dshc-dialog-content">
           <p className="dshc-dialog-body">粘贴 mcpServers JSON，支持 Streamable HTTP 与 stdio 两类 MCP Server。</p>
-          <label className="dshc-field">
-            <span>mcpServers JSON</span>
+          <div className="dshc-field">
+            <span className="dshc-field-label">
+              <span>mcpServers JSON</span>
+              <button
+                type="button"
+                className="dshc-help-btn"
+                aria-label="x-dsh 说明"
+                onMouseEnter={event => showHelpTip(event.currentTarget)}
+                onMouseLeave={hideHelpTipSoon}
+                onFocus={event => showHelpTip(event.currentTarget)}
+                onBlur={hideHelpTipSoon}
+              >
+                <IconHelp size={14} />
+              </button>
+            </span>
             <textarea
               autoFocus
               spellCheck={false}
@@ -2263,8 +2451,84 @@ function CustomConnectorDialog({ onClose, onImported }: CustomDialogProps): JSX.
                 setError(null)
               }}
             />
+          </div>
+          {hasJsonMeta && (
+            <p className="dshc-dialog-hint">已读取 JSON 中的 x-dsh；下方留空就使用它，填写会覆盖。</p>
+          )}
+          <label className="dshc-field">
+            <span>描述（可选）</span>
+            <input
+              autoComplete="off"
+              maxLength={120}
+              placeholder={jsonMeta?.description === undefined
+                ? '例如：通过 DeepWiki 查询仓库结构与文档'
+                : `JSON 中：${jsonMeta.description}`}
+              value={description}
+              onChange={event => setDescription(event.target.value)}
+            />
           </label>
-          <p className="dshc-dialog-hint">凭据只保存在本机。stdio 会在本机启动命令，请只导入可信配置。</p>
+          <div className="dshc-field">
+            <span className="dshc-field-label">
+              <span>类别（可选）</span>
+            </span>
+            <div className="dshc-select" ref={categoryRef}>
+              <div className="dshc-select-control">
+                <input
+                  ref={categoryInputRef}
+                  autoComplete="off"
+                  placeholder={jsonMeta?.category === undefined ? '默认：其他' : `JSON 中：${jsonMeta.category}`}
+                  value={category}
+                  aria-expanded={categoryOpen}
+                  onFocus={openCategoryMenu}
+                  onChange={event => {
+                    setCategory(event.target.value)
+                    openCategoryMenu()
+                  }}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      setCategoryOpen(false)
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="dshc-select-toggle"
+                  aria-label="选择类别"
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => {
+                    if (categoryOpen) setCategoryOpen(false)
+                    else openCategoryMenu()
+                  }}
+                >
+                  <IconChevronDown size={14} />
+                </button>
+              </div>
+            </div>
+            <p className="dshc-dialog-hint">
+              {jsonMeta?.category === undefined
+                ? '留空会归入「其他」；可直接输入新类别。'
+                : '留空使用 JSON 中的类别；填写会覆盖。'}
+            </p>
+          </div>
+          <label className="dshc-field">
+            <span>示例提示词（可选，每行一条）</span>
+            <textarea
+              className="dshc-examples-input"
+              spellCheck={false}
+              placeholder={jsonMeta?.examples === undefined
+                ? '用 DeepWiki 查一下 facebook/react 的仓库结构'
+                : `JSON 中：\n${jsonMeta.examples.join('\n')}`}
+              value={examples}
+              onChange={event => setExamples(event.target.value)}
+            />
+          </label>
+          {serverCount > 1 && (
+            <p className="dshc-warning">
+              检测到 {serverCount} 个 Server；多 Server 请用「仅导入」，导入后分别连接。
+              填写下方描述、类别、示例会覆盖所有 Server；留空则各 Server 使用自己的 x-dsh。
+            </p>
+          )}
           {privateWarning && (
             <>
               <p className="dshc-warning">{error}</p>
@@ -2285,14 +2549,77 @@ function CustomConnectorDialog({ onClose, onImported }: CustomDialogProps): JSX.
             取消
           </button>
           <button
+            type="button"
+            className="dshc-btn dshc-btn-md dshc-btn-outline"
+            disabled={pending || json.trim() === '' || (privateWarning && !privateConfirmed)}
+            onClick={() => submit(false)}
+          >
+            {privateWarning ? '仍然仅导入' : '仅导入'}
+          </button>
+          <button
             type="submit"
             className="dshc-btn dshc-btn-md dshc-btn-primary"
-            disabled={pending || json.trim() === '' || (privateWarning && !privateConfirmed)}
+            disabled={pending || json.trim() === '' || serverCount !== 1 || (privateWarning && !privateConfirmed)}
           >
-            {pending ? '导入中…' : privateWarning ? '仍然导入' : '导入'}
+            {pending ? '导入中…' : privateWarning ? '仍然导入并连接' : '导入并连接'}
           </button>
         </div>
       </form>
+      {categoryOpen && categoryMenu !== null && createPortal(
+        <div
+          ref={categoryMenuRef}
+          className="dshc-select-menu dshc-select-menu-portal"
+          style={{ left: categoryMenu.left, top: categoryMenu.top, width: categoryMenu.width }}
+          role="listbox"
+        >
+          {categoryOptions.map(item => (
+            <button
+              key={item}
+              type="button"
+              role="option"
+              aria-selected={category === item}
+              className={category === item
+                ? 'dshc-select-item dshc-select-item-active'
+                : 'dshc-select-item'}
+              onClick={() => {
+                setCategory(item)
+                setCategoryOpen(false)
+              }}
+            >
+              {item}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+      {helpTip !== null && createPortal(
+        <div
+          className="dshc-card-tip dshc-help-tip"
+          style={{
+            left: helpTip.left,
+            top: helpTip.top,
+            ...(helpTip.above ? { transform: 'translateY(-100%)' } : {}),
+          }}
+          onMouseEnter={() => {
+            helpHoverRef.current = true
+            cancelHelpTipHide()
+          }}
+          onMouseLeave={() => {
+            helpHoverRef.current = false
+            cancelHelpTipHide()
+            setHelpTip(null)
+          }}
+        >
+          <strong>可选扩展：x-dsh</strong>
+          <span>可在每个 server 配置里指定描述、类别与示例，优先于下方表单：</span>
+          <code>{`"x-dsh": {
+  "description": "查询仓库结构与文档",
+  "category": "知识检索",
+  "examples": ["用 DeepWiki 查 facebook/react 的仓库结构"]
+}`}</code>
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }
@@ -2425,16 +2752,16 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-card:hover .dshc-card-action-connect,.dshc-card:focus-within .dshc-card-action-connect{opacity:1;pointer-events:auto}
 .dshc-card-action-connect:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));border-color:var(--dsw-alias-border-l4);color:var(--dsw-alias-label-primary);box-shadow:0 2px 5px color-mix(in srgb,#000 8%,transparent)}
 .dshc-card:hover .dshc-card-action-connect:disabled,.dshc-card:focus-within .dshc-card-action-connect:disabled{opacity:.4;cursor:not-allowed}
-.dshc-card-action-connect.dshc-card-action-loading{opacity:1;pointer-events:auto;cursor:progress}
+.dshc-card-action-connect.dshc-card-action-loading{opacity:1;pointer-events:auto;cursor:progress;border-color:transparent;background:transparent;box-shadow:none}
 .dshc-card:hover .dshc-card-action-connect.dshc-card-action-loading,.dshc-card:focus-within .dshc-card-action-connect.dshc-card-action-loading{opacity:1;pointer-events:auto;cursor:progress}
-.dshc-spinner{box-sizing:border-box;display:inline-block;width:14px;height:14px;border:2px solid color-mix(in srgb,currentColor 25%,transparent);border-top-color:currentColor;border-radius:50%;animation:dshc-spin .8s linear infinite}
+.dshc-spinner{display:inline-block;width:16px;height:16px;flex:none;transform-origin:50% 50%;animation:dshc-spin .8s linear infinite}
 @keyframes dshc-spin{to{transform:rotate(360deg)}}
 .dshc-card-action-connected{color:var(--dsw-alias-state-success-primary)}
 .dshc-card-action-disabled{color:var(--dsw-alias-label-tertiary)}
 .dshc-card-action-error{color:var(--dsw-alias-state-error-primary)}
 .dshc-card-auth-actions{display:flex;align-items:center;gap:4px;flex:none}
 .dshc-card-auth{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;white-space:nowrap;cursor:pointer}
-.dshc-spinner-inline{width:10px;height:10px;border-width:1.5px}
+.dshc-spinner-inline{width:12px;height:12px}
 .dshc-card-auth:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dshc-card-auth:disabled{opacity:.4;cursor:not-allowed}
 .dshc-card-auth:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
@@ -2452,6 +2779,9 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-switch:disabled{opacity:.4;cursor:not-allowed}
 .dshc-switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .dshc-card-more-wrap{position:relative;display:inline-flex;flex:none}
+.dshc-card-install-actions{position:relative;display:flex;align-items:center;flex:none}
+.dshc-card-more-wrap.dshc-card-more-float{position:absolute;right:32px;top:0;opacity:0;pointer-events:none;transition:opacity .15s}
+.dshc-card:hover .dshc-card-more-float,.dshc-card:focus-within .dshc-card-more-float,.dshc-card-menu-open .dshc-card-more-float{opacity:1;pointer-events:auto}
 .dshc-card-more{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;transition:background-color .15s}
 .dshc-card-more:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dshc-card-more:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
@@ -2525,6 +2855,23 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-field input:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
 .dshc-field textarea{box-sizing:border-box;min-height:180px;max-height:320px;padding:10px 14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:12px/18px var(--dsw-font-markdown-code-font-family);outline:none;resize:vertical}
 .dshc-field textarea:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
+.dshc-field textarea.dshc-examples-input{min-height:72px;max-height:120px;padding:8px 12px;font:inherit;font-size:13px;line-height:20px}
+.dshc-field-label{display:flex;align-items:center;gap:4px}
+.dshc-help-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.dshc-help-btn:hover,.dshc-help-btn:focus-visible{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);outline:none}
+.dshc-select{position:relative}
+.dshc-select-control{position:relative;display:flex;align-items:center}
+.dshc-select-control input{width:100%;padding-right:36px}
+.dshc-select-toggle{position:absolute;top:50%;right:4px;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.dshc-select-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
+.dshc-select-menu{position:absolute;top:calc(100% + 4px);right:0;left:0;z-index:30;display:flex;flex-direction:column;max-height:220px;padding:4px;overflow-y:auto;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-prominent)}
+.dshc-select-menu-portal{position:fixed;right:auto;z-index:1100;box-sizing:border-box}
+.dshc-select-item{display:flex;align-items:center;width:100%;height:32px;padding:0 10px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.dshc-select-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dshc-select-item-active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-state-business-primary)}
+.dshc-help-tip{display:flex;flex-direction:column;gap:6px;max-width:min(380px,calc(100vw - 32px));max-height:none;padding:10px 12px;overflow:visible;white-space:normal;pointer-events:auto;user-select:text;cursor:auto}
+.dshc-help-tip strong{font-weight:500}
+.dshc-help-tip code{display:block;padding:6px 8px;border-radius:var(--dsw-radius-sm);background:rgba(255,255,255,.12);color:inherit;font:12px/18px var(--dsw-font-markdown-code-font-family);white-space:pre-wrap;overflow-wrap:anywhere;overflow:hidden}
 .dshc-dialog-hint{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
 .dshc-link{color:var(--dsw-alias-state-business-primary);text-decoration:none}
 .dshc-link:hover{text-decoration:underline}
