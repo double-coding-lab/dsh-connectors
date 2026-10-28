@@ -1,4 +1,7 @@
+import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createRequire } from 'node:module'
+import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 
 import type { Context } from '@deepseek-ai/cordis'
 
@@ -24,6 +27,74 @@ export interface RouteOptions {
 }
 
 const MAX_BODY = 16 * 1024
+const MONACO_URL_PREFIX = `${ROUTE_PREFIX}/api/monaco/`
+const MONACO_TYPES: Record<string, string> = {
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.ttf': 'font/ttf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
+
+let monacoRoot: string | null | undefined
+
+function resolveMonacoRoot(): string | null {
+  if (monacoRoot !== undefined) return monacoRoot
+  try {
+    const require = createRequire(import.meta.url)
+    const entry = require.resolve('monaco-editor')
+    monacoRoot = resolve(dirname(entry), '..')
+  } catch {
+    monacoRoot = null
+  }
+  return monacoRoot
+}
+
+async function serveMonaco(path: string, res: ServerResponse): Promise<void> {
+  const root = resolveMonacoRoot()
+  if (root === null) {
+    res.writeHead(404)
+    res.end('monaco-editor is not installed')
+    return
+  }
+  let relative: string
+  try {
+    relative = decodeURIComponent(path.slice(MONACO_URL_PREFIX.length))
+  } catch {
+    res.writeHead(400)
+    res.end('bad path')
+    return
+  }
+  const normalized = normalize(relative)
+  if (normalized === '' || normalized.startsWith('..') || isAbsolute(normalized)) {
+    res.writeHead(404)
+    res.end('not found')
+    return
+  }
+  const base = resolve(root)
+  const file = resolve(base, normalized)
+  if (file !== base && !file.startsWith(`${base}${sep}`)) {
+    res.writeHead(404)
+    res.end('not found')
+    return
+  }
+  try {
+    const body = await readFile(file)
+    res.writeHead(200, {
+      'content-type': MONACO_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream',
+      'content-length': body.byteLength,
+      'cache-control': 'public, max-age=3600',
+      'x-content-type-options': 'nosniff',
+    })
+    res.end(body)
+  } catch {
+    res.writeHead(404)
+    res.end('not found')
+  }
+}
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body)
@@ -118,7 +189,7 @@ function statusFor(error: ConnectError): number {
   if (error.code === 'cli_not_installed') return 409
   if (error.code === 'loader_unavailable') return 503
   if (error.code === 'connect_failed') return 502
-  if (error.code === 'cli_install_failed' || error.code === 'cli_login_failed' || error.code === 'cli_logout_failed') return 502
+  if (error.code === 'cli_install_failed' || error.code === 'cli_login_failed' || error.code === 'cli_logout_failed' || error.code === 'cli_uninstall_failed') return 502
   if (error.code === 'cli_login_timeout') return 504
   if (error.code === 'cli_status_failed') return 502
   if (error.code === 'oauth_unreachable' || error.code === 'oauth_failed') return 502
@@ -137,6 +208,11 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
     const path = url.pathname
 
     try {
+      if (req.method === 'GET' && path.startsWith(MONACO_URL_PREFIX)) {
+        await serveMonaco(path, res)
+        return
+      }
+
       if (req.method === 'GET' && path === `${ROUTE_PREFIX}/api/health`) {
         json(res, 200, {
           ok: true,
@@ -411,7 +487,7 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
       }
 
       const cliAction = req.method === 'POST'
-        ? new RegExp(`^${ROUTE_PREFIX}/api/cli/([^/]+)/(install|login|logout|cancel)$`).exec(path)
+        ? new RegExp(`^${ROUTE_PREFIX}/api/cli/([^/]+)/(install|login|logout|cancel|uninstall)$`).exec(path)
         : undefined
       if (cliAction !== null && cliAction !== undefined) {
         const rawId = cliAction[1]
@@ -430,6 +506,10 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
         }
         if (action === 'logout') {
           json(res, 200, { ok: true, value: { connector: await options.cli.logout(id) } })
+          return
+        }
+        if (action === 'uninstall') {
+          json(res, 200, { ok: true, value: { connector: await options.cli.startUninstall(id) } })
           return
         }
         json(res, 200, { ok: true, value: { connector: await options.cli.cancel(id) } })

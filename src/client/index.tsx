@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type * as MonacoApi from 'monaco-editor'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -29,7 +30,6 @@ const MCP_SERVERS_PLACEHOLDER = `{
     }
   }
 }`
-
 interface SlotsFace {
   inject: (name: string, callback: () => unknown) => unknown
   register: (spec: Record<string, unknown>, component: unknown) => () => void
@@ -277,6 +277,165 @@ function ToolRow({ name, description }: { name: string; description?: string }):
       </div>
       {description !== undefined && (
         <p ref={descRef} className={expanded ? 'dshc-tool-desc-expanded' : undefined}>{description}</p>
+      )}
+    </div>
+  )
+}
+
+type Monaco = typeof MonacoApi
+type MonacoEditorInstance = MonacoApi.editor.IStandaloneCodeEditor
+type MonacoDisposable = MonacoApi.IDisposable
+
+interface MonacoAmdRequire {
+  (deps: string[], callback: () => void): void
+  config(options: { paths: Record<string, string> }): void
+}
+
+declare global {
+  interface Window {
+    monaco?: Monaco
+    require?: MonacoAmdRequire
+  }
+}
+
+let monacoPromise: Promise<Monaco> | null = null
+
+function loadMonaco(): Promise<Monaco> {
+  if (window.monaco !== undefined) return Promise.resolve(window.monaco)
+  if (monacoPromise !== null) return monacoPromise
+
+  const load = new Promise<Monaco>((resolve, reject) => {
+    const start = (): void => {
+      const amd = window.require
+      if (amd === undefined) {
+        reject(new Error('Monaco AMD loader unavailable'))
+        return
+      }
+      try {
+        amd.config({ paths: { vs: `${ROUTE_PREFIX}/api/monaco/vs` } })
+        amd(['vs/editor/editor.main'], () => {
+          if (window.monaco !== undefined) resolve(window.monaco)
+          else reject(new Error('Monaco editor unavailable'))
+        })
+      } catch (error) {
+        reject(error)
+      }
+    }
+
+    if (window.require !== undefined) {
+      start()
+      return
+    }
+    const script = document.createElement('script')
+    script.src = `${ROUTE_PREFIX}/api/monaco/vs/loader.js`
+    script.async = true
+    script.onload = start
+    script.onerror = () => reject(new Error('Monaco loader failed to load'))
+    document.head.appendChild(script)
+  })
+
+  monacoPromise = Promise.race([
+    load,
+    new Promise<Monaco>((_, reject) => {
+      window.setTimeout(() => reject(new Error('Monaco editor load timeout')), 15_000)
+    }),
+  ])
+  monacoPromise.catch(() => {
+    monacoPromise = null
+  })
+  return monacoPromise
+}
+
+function JsonEditor({ value, onChange }: { value: string; onChange: (value: string) => void }): JSX.Element {
+  const mountRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<MonacoEditorInstance | null>(null)
+  const subscriptionRef = useRef<MonacoDisposable | null>(null)
+  const onChangeRef = useRef(onChange)
+  const valueRef = useRef(value)
+  const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState(false)
+  onChangeRef.current = onChange
+  valueRef.current = value
+
+  useEffect(() => {
+    let active = true
+    void loadMonaco().then(monaco => {
+      if (!active || mountRef.current === null) return
+      const editor = monaco.editor.create(mountRef.current, {
+        value: valueRef.current,
+        language: 'json',
+        theme: 'vs',
+        ariaLabel: 'mcpServers JSON',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        lineNumbers: 'on',
+        lineNumbersMinChars: 3,
+        folding: true,
+        glyphMargin: false,
+        lineDecorationsWidth: 10,
+        scrollBeyondLastLine: false,
+        wordWrap: 'off',
+        tabSize: 2,
+        insertSpaces: true,
+        detectIndentation: false,
+        fontSize: 12,
+        lineHeight: 18,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        padding: { top: 10, bottom: 10 },
+        renderLineHighlight: 'line',
+        overviewRulerLanes: 0,
+        hideCursorInOverviewRuler: true,
+        overviewRulerBorder: false,
+        contextmenu: false,
+        quickSuggestions: false,
+        suggestOnTriggerCharacters: false,
+        fixedOverflowWidgets: true,
+        renderValidationDecorations: 'on',
+        bracketPairColorization: { enabled: true },
+        scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, useShadows: false },
+      })
+      editorRef.current = editor
+      subscriptionRef.current = editor.onDidChangeModelContent(() => {
+        onChangeRef.current(editor.getValue())
+      })
+      setReady(true)
+      editor.focus()
+    }).catch(() => {
+      if (active) setFailed(true)
+    })
+
+    return () => {
+      active = false
+      subscriptionRef.current?.dispose()
+      subscriptionRef.current = null
+      editorRef.current?.dispose()
+      editorRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const editor = editorRef.current
+    if (editor !== null && editor.getValue() !== value) editor.setValue(value)
+  }, [value])
+
+  return (
+    <div className="dshc-json-editor">
+      <div ref={mountRef} className="dshc-json-editor-mount" />
+      {!ready && (
+        <textarea
+          autoFocus
+          className="dshc-json-editor-fallback"
+          aria-label="mcpServers JSON"
+          spellCheck={false}
+          value={value}
+          onChange={event => onChange(event.target.value)}
+        />
+      )}
+      {!ready && !failed && (
+        <div className="dshc-json-editor-loading">
+          <Spinner inline />
+          正在加载编辑器…
+        </div>
       )}
     </div>
   )
@@ -897,6 +1056,7 @@ function ConnectorPopover(): JSX.Element | null {
     const busy = connector.phase === 'installing'
       || connector.phase === 'configuring'
       || connector.phase === 'logging_in'
+      || connector.phase === 'uninstalling'
     const pending = state.cliPendingId === connector.id || busy
     const enabled = connector.enabled !== false
     const ready = connector.installed && connector.authenticated
@@ -1037,6 +1197,9 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
   const [cliDetailId, setCliDetailId] = useState<string | null>(null)
   const [cliInstallId, setCliInstallId] = useState<string | null>(null)
   const [cliLoginId, setCliLoginId] = useState<string | null>(null)
+  const [cliUninstallId, setCliUninstallId] = useState<string | null>(null)
+  const [cliUninstallPending, setCliUninstallPending] = useState(false)
+  const [cliUninstallError, setCliUninstallError] = useState<string | null>(null)
   const [cliBusyId, setCliBusyId] = useState<string | null>(null)
   const [cliTogglePending, setCliTogglePending] = useState<string | null>(null)
   const [cliFlow, setCliFlow] = useState<{ id: string; action: 'install' | 'login' } | null>(null)
@@ -1227,9 +1390,69 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
     }
   }
 
+  const uninstallCli = (connector: CliConnectorView): void => {
+    if (cliUninstallPending) return
+    setCliUninstallPending(true)
+    setCliUninstallError(null)
+    void (async () => {
+      try {
+        const response = await request<CliConnectorPayload>(
+          `${ROUTE_PREFIX}/api/cli/${encodeURIComponent(connector.id)}/uninstall`,
+          { method: 'POST' },
+        )
+        applyCli(response.value.connector)
+        notifyConnectionsChanged()
+      } catch (cause) {
+        setCliUninstallError(cause instanceof Error ? cause.message : String(cause))
+      } finally {
+        setCliUninstallPending(false)
+      }
+    })()
+  }
+
+  const closeCliUninstall = (): void => {
+    setCliUninstallId(null)
+    setCliUninstallError(null)
+  }
+
+  const cancelUninstall = (connector: CliConnectorView): void => {
+    setCliUninstallPending(true)
+    setCliUninstallError(null)
+    void (async () => {
+      try {
+        const response = await request<CliConnectorPayload>(
+          `${ROUTE_PREFIX}/api/cli/${encodeURIComponent(connector.id)}/cancel`,
+          { method: 'POST' },
+        )
+        applyCli(response.value.connector)
+        setCliUninstallId(null)
+        notifyConnectionsChanged()
+      } catch (cause) {
+        setCliUninstallError(cause instanceof Error ? cause.message : String(cause))
+      } finally {
+        setCliUninstallPending(false)
+      }
+    })()
+  }
+
+  useEffect(() => {
+    if (cliUninstallId === null) return
+    const connector = cliConnectors.find(item => item.id === cliUninstallId)
+    if (connector === undefined) return
+    if (connector.phase === 'error' && connector.lastError !== undefined) {
+      setCliUninstallError(connector.lastError)
+    }
+    if (connector.phase === 'idle' && !connector.installed) {
+      setCliUninstallId(null)
+      setCliUninstallError(null)
+      notifyConnectionsChanged()
+    }
+  }, [cliConnectors, cliUninstallId])
+
   const cliDetail = cliConnectors.find(connector => connector.id === cliDetailId) ?? null
   const cliInstall = cliConnectors.find(connector => connector.id === cliInstallId) ?? null
   const cliLogin = cliConnectors.find(connector => connector.id === cliLoginId) ?? null
+  const cliUninstall = cliConnectors.find(connector => connector.id === cliUninstallId) ?? null
   const cliErrorConnector = cliConnectors.find(connector => connector.id === cliErrorId) ?? null
 
   const categories = useMemo(() => {
@@ -1965,6 +2188,14 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
                   onTrial={() => trialCli(connector)}
                   onOpenError={() => setCliErrorId(connector.id)}
                   onCancel={() => runCliAction(connector.id, 'cancel')}
+                  onUninstall={() => {
+                    setCliUninstallError(null)
+                    setCliUninstallId(connector.id)
+                  }}
+                  onOpenUninstall={() => {
+                    setCliUninstallError(null)
+                    setCliUninstallId(connector.id)
+                  }}
                 />
               ))}
             </div>
@@ -2116,6 +2347,18 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
         />
       )}
 
+      {cliUninstall !== null && (
+        <CliUninstallDialog
+          connector={cliUninstall}
+          running={cliUninstall.phase === 'uninstalling'}
+          pending={cliUninstallPending}
+          error={cliUninstallError}
+          onClose={closeCliUninstall}
+          onConfirm={() => uninstallCli(cliUninstall)}
+          onCancel={() => cancelUninstall(cliUninstall)}
+        />
+      )}
+
       {cliDetail !== null && (
         <CliDetailDialog
           connector={cliDetail}
@@ -2123,6 +2366,22 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
           onTrial={example => {
             setCliDetailId(null)
             trialCli(cliDetail, example)
+          }}
+          onInstall={() => {
+            const id = cliDetail.id
+            setCliDetailId(null)
+            setCliInstallId(id)
+          }}
+          onLogin={() => {
+            const id = cliDetail.id
+            setCliDetailId(null)
+            runCliAction(id, 'login')
+          }}
+          onUninstall={() => {
+            const id = cliDetail.id
+            setCliDetailId(null)
+            setCliUninstallError(null)
+            setCliUninstallId(id)
           }}
         />
       )}
@@ -2151,9 +2410,11 @@ interface CliCardViewProps {
   onTrial: () => void
   onOpenError: () => void
   onCancel: () => void
+  onUninstall: () => void
+  onOpenUninstall: () => void
 }
 
-function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onLogin, onLogout, onOpenInstall, onOpenLogin, onToggle, onTrial, onOpenError, onCancel }: CliCardViewProps): JSX.Element {
+function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onLogin, onLogout, onOpenInstall, onOpenLogin, onToggle, onTrial, onOpenError, onCancel, onUninstall, onOpenUninstall }: CliCardViewProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuAbove, setMenuAbove] = useState(false)
   const [tip, setTip] = useState<CardTip | null>(null)
@@ -2162,6 +2423,7 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
     || connector.phase === 'installing'
     || connector.phase === 'configuring'
     || connector.phase === 'logging_in'
+    || connector.phase === 'uninstalling'
   const enabled = connector.enabled !== false
   const connected = connector.installed && connector.authenticated
   const canTry = connected && enabled && connector.skills.installed && !busy
@@ -2178,6 +2440,12 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
     const rect = button.getBoundingClientRect()
     setMenuAbove(rect.bottom + 170 > window.innerHeight)
     setMenuOpen(current => !current)
+  }
+
+  const openProgress = (): void => {
+    if (connector.phase === 'installing') onOpenInstall()
+    else if (connector.phase === 'uninstalling') onOpenUninstall()
+    else onOpenLogin()
   }
 
   useEffect(() => {
@@ -2291,10 +2559,11 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
               <button
                 type="button"
                 className="dshc-card-auth"
-                aria-label={busy ? `正在登录 ${connector.name}` : `登录 ${connector.name}`}
+                aria-label={busy ? (connector.stage ?? '处理中') : `登录 ${connector.name}`}
                 onClick={event => {
                   event.stopPropagation()
-                  if (busy) onOpenLogin()
+                  if (connector.phase === 'uninstalling') onOpenUninstall()
+                  else if (busy) onOpenLogin()
                   else onLogin()
                 }}
               >
@@ -2317,6 +2586,66 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                 : <span className="dshc-card-installed" title="CLI 已安装" aria-label="CLI 已安装">
                     <IconCheck size={14} />
                   </span>}
+              <span className="dshc-card-more-wrap" ref={menuRef}>
+                <button
+                  type="button"
+                  className="dshc-card-more"
+                  aria-label={`${connector.name} 更多操作`}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  onClick={event => {
+                    event.stopPropagation()
+                    toggleMenu(event.currentTarget)
+                  }}
+                >
+                  <IconMore size={16} />
+                </button>
+                {menuOpen && (
+                  <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} role="menu" onClick={event => event.stopPropagation()}>
+                    {busy ? (
+                      <>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="dshc-menu-item"
+                          onClick={() => {
+                            setMenuOpen(false)
+                            openProgress()
+                          }}
+                        >
+                          <IconRefresh size={14} />
+                          查看进度
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="dshc-menu-item dshc-menu-item-danger"
+                          onClick={() => {
+                            setMenuOpen(false)
+                            onCancel()
+                          }}
+                        >
+                          <IconClose size={14} />
+                          {connector.phase === 'uninstalling' ? '取消卸载' : '取消登录'}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="dshc-menu-item dshc-menu-item-danger"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          onUninstall()
+                        }}
+                      >
+                        <IconTrash size={14} />
+                        卸载 CLI
+                      </button>
+                    )}
+                  </span>
+                )}
+              </span>
             </span>
           ) : (
             <span className="dshc-card-actions">
@@ -2325,10 +2654,13 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                     type="button"
                     className={`${actionClass} dshc-card-status`}
                     title={connector.stage ?? '处理中'}
-                    aria-label={connector.phase === 'installing' ? `查看 ${connector.name} 安装进度` : `查看 ${connector.name} 登录进度`}
+                    aria-label={connector.phase === 'installing'
+                      ? `查看 ${connector.name} 安装进度`
+                      : connector.phase === 'uninstalling' ? `查看 ${connector.name} 卸载进度` : `查看 ${connector.name} 登录进度`}
                     onClick={event => {
                       event.stopPropagation()
                       if (connector.phase === 'installing') onOpenInstall()
+                      else if (connector.phase === 'uninstalling') onOpenUninstall()
                       else onOpenLogin()
                     }}
                   >
@@ -2368,18 +2700,34 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                   {menuOpen && (
                     <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} role="menu" onClick={event => event.stopPropagation()}>
                       {busy ? (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="dshc-menu-item"
-                          onClick={() => {
-                            setMenuOpen(false)
-                            onCancel()
-                          }}
-                        >
-                          <IconClose size={14} />
-                          {connector.phase === 'installing' ? '取消安装' : '取消登录'}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="dshc-menu-item"
+                            onClick={() => {
+                              setMenuOpen(false)
+                              openProgress()
+                            }}
+                          >
+                            <IconRefresh size={14} />
+                            查看进度
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="dshc-menu-item dshc-menu-item-danger"
+                            onClick={() => {
+                              setMenuOpen(false)
+                              onCancel()
+                            }}
+                          >
+                            <IconClose size={14} />
+                            {connector.phase === 'installing'
+                              ? '取消安装'
+                              : connector.phase === 'uninstalling' ? '取消卸载' : '取消登录'}
+                          </button>
+                        </>
                       ) : (
                         <>
                           <button
@@ -2418,6 +2766,18 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                           >
                             <IconPlug size={14} />
                             解绑
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="dshc-menu-item dshc-menu-item-danger"
+                            onClick={() => {
+                              setMenuOpen(false)
+                              onUninstall()
+                            }}
+                          >
+                            <IconTrash size={14} />
+                            卸载 CLI
                           </button>
                         </>
                       )}
@@ -2675,13 +3035,118 @@ function CliLoginDialog({ connector, onCancel, onClose }: CliLoginDialogProps): 
   )
 }
 
+interface CliUninstallDialogProps {
+  connector: CliConnectorView
+  running: boolean
+  pending: boolean
+  error: string | null
+  onClose: () => void
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+function CliUninstallDialog({ connector, running, pending, error, onClose, onConfirm, onCancel }: CliUninstallDialogProps): JSX.Element {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="dshc-overlay"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="dshc-dialog" role="dialog" aria-modal="true" aria-busy={running} aria-label={`卸载 ${connector.name} CLI`}>
+        <div className="dshc-dialog-head">
+          <span className="dshc-dialog-avatar"><CliLogo connector={connector} size={28} /></span>
+          <div className="dshc-dialog-title">
+            <h2>卸载 {connector.name} CLI</h2>
+            <span>{connector.vendor}</span>
+          </div>
+          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+            <IconClose size={16} />
+          </button>
+        </div>
+        <div className="dshc-dialog-content">
+          {running ? (
+            <>
+              <div className="dshc-cli-wait">
+                <Spinner />
+                <span>{connector.stage ?? '正在卸载 CLI 与官方 Skills…'}</span>
+              </div>
+              <p className="dshc-dialog-hint">
+                卸载在宿主侧继续执行；关闭弹窗不会中止，可以从卡片重新打开进度。
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="dshc-dialog-body">
+                将卸载本机 npm 全局 CLI{connector.skills.count > 0 ? `，并删除 ~/.agents/skills 下 ${connector.skills.count} 个官方 Skills` : ''}。
+              </p>
+              <p className="dshc-dialog-hint">
+                {connector.skills.count > 0
+                  ? '其他 Agent 将无法继续使用这些 Skills，当前登录态也会清除；需要重新安装才能恢复。'
+                  : '其他 Agent 将无法继续使用该 CLI，当前登录态也会清除；需要重新安装才能恢复。'}
+              </p>
+            </>
+          )}
+          {error !== null && <p className="dshc-dialog-error">{error}</p>}
+        </div>
+        <div className="dshc-dialog-actions">
+          {running ? (
+            <>
+              <button
+                type="button"
+                className="dshc-btn dshc-btn-md dshc-btn-outline dshc-btn-danger"
+                disabled={pending}
+                onClick={onCancel}
+              >
+                {pending && <Spinner inline />}
+                取消卸载
+              </button>
+              <span className="dshc-dialog-actions-right">
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
+                  关闭
+                </button>
+              </span>
+            </>
+          ) : (
+            <>
+              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="dshc-btn dshc-btn-md dshc-btn-outline dshc-btn-danger"
+                disabled={pending}
+                onClick={onConfirm}
+              >
+                {pending && <Spinner inline />}
+                {pending ? '启动中…' : '卸载 CLI'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface CliDetailDialogProps {
   connector: CliConnectorView
   onClose: () => void
   onTrial: (example: string) => void
+  onInstall: () => void
+  onLogin: () => void
+  onUninstall: () => void
 }
 
-function CliDetailDialog({ connector, onClose, onTrial }: CliDetailDialogProps): JSX.Element {
+function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUninstall }: CliDetailDialogProps): JSX.Element {
   const [copied, setCopied] = useState<number | null>(null)
   const [copyFailed, setCopyFailed] = useState<number | null>(null)
   const [showAllCapabilities, setShowAllCapabilities] = useState(false)
@@ -2692,7 +3157,7 @@ function CliDetailDialog({ connector, onClose, onTrial }: CliDetailDialogProps):
     top: number
     above: boolean
   } | null>(null)
-  const busy = connector.phase === 'installing' || connector.phase === 'configuring' || connector.phase === 'logging_in'
+  const busy = connector.phase === 'installing' || connector.phase === 'configuring' || connector.phase === 'logging_in' || connector.phase === 'uninstalling'
   const enabled = connector.enabled !== false
   const canTry = connector.authenticated && connector.installed && enabled && connector.skills.installed && !busy
   const status = busy
@@ -2869,16 +3334,27 @@ function CliDetailDialog({ connector, onClose, onTrial }: CliDetailDialogProps):
           )}
         </div>
         <div className="dshc-dialog-actions">
-          <a
-            className="dshc-btn dshc-btn-md dshc-btn-ghost"
-            href={connector.docsUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            查看官方文档
-          </a>
+          {connector.installed && (
+            <button
+              type="button"
+              className="dshc-btn dshc-btn-md dshc-btn-ghost dshc-btn-danger"
+              disabled={busy}
+              onClick={onUninstall}
+            >
+              卸载 CLI
+            </button>
+          )}
           <span className="dshc-dialog-actions-right">
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>关闭</button>
+            {!connector.installed ? (
+              <>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>关闭</button>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onInstall}>安装</button>
+              </>
+            ) : !connector.authenticated ? (
+              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onLogin}>登录</button>
+            ) : (
+              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>完成</button>
+            )}
           </span>
         </div>
       </div>
@@ -4180,7 +4656,7 @@ interface CustomDialogProps {
 }
 
 function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, onEdited }: CustomDialogProps): JSX.Element {
-  const [json, setJson] = useState(editing?.initial.json ?? '')
+  const [json, setJson] = useState(editing?.initial.json ?? MCP_SERVERS_PLACEHOLDER)
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
   const [examples, setExamples] = useState('')
@@ -4190,7 +4666,12 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
   const [privateConfirmed, setPrivateConfirmed] = useState(false)
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [categoryMenu, setCategoryMenu] = useState<{ left: number; top: number; width: number } | null>(null)
-  const [helpTip, setHelpTip] = useState<{ left: number; top: number; above: boolean } | null>(null)
+  const [helpTip, setHelpTip] = useState<{
+    left: number
+    top: number
+    above: boolean
+    kind: 'import' | 'x-dsh'
+  } | null>(null)
   const categoryRef = useRef<HTMLDivElement>(null)
   const categoryMenuRef = useRef<HTMLDivElement>(null)
   const categoryInputRef = useRef<HTMLInputElement>(null)
@@ -4295,13 +4776,13 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
     }
   }
 
-  const showHelpTip = (element: HTMLElement): void => {
+  const showHelpTip = (element: HTMLElement, kind: 'import' | 'x-dsh'): void => {
     cancelHelpTipHide()
     const rect = element.getBoundingClientRect()
     const width = Math.min(380, window.innerWidth - 32)
     const left = Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
     const above = rect.bottom + 220 > window.innerHeight
-    setHelpTip({ left, top: above ? rect.top - 8 : rect.bottom + 8, above })
+    setHelpTip({ left, top: above ? rect.top - 8 : rect.bottom + 8, above, kind })
   }
 
   const hideHelpTipSoon = (): void => {
@@ -4379,15 +4860,27 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
         }}
       >
         <div className="dshc-dialog-head">
-          <h2>{editing === undefined ? '自定义连接器' : '编辑配置'}</h2>
+          <div className="dshc-dialog-head-title">
+            <h2>{editing === undefined ? '自定义连接器' : '编辑配置'}</h2>
+            {editing === undefined && (
+              <button
+                type="button"
+                className="dshc-help-btn"
+                aria-label="自定义连接器说明"
+                onMouseEnter={event => showHelpTip(event.currentTarget, 'import')}
+                onMouseLeave={hideHelpTipSoon}
+                onFocus={event => showHelpTip(event.currentTarget, 'import')}
+                onBlur={hideHelpTipSoon}
+              >
+                <IconHelp size={14} />
+              </button>
+            )}
+          </div>
           <button type="button" className="dshc-icon-btn" aria-label="关闭" disabled={pending} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
         <div className="dshc-dialog-content">
-          {editing === undefined && (
-            <p className="dshc-dialog-body">粘贴 mcpServers JSON，支持 Streamable HTTP 与 stdio 两类 MCP Server。</p>
-          )}
           {editing?.initial.installed === true && (
             <p className="dshc-dialog-hint">
               当前已安装；如修改地址、命令、请求头或环境变量，保存后会断开连接，需要重新安装。
@@ -4400,21 +4893,18 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
                 type="button"
                 className="dshc-help-btn"
                 aria-label="x-dsh 说明"
-                onMouseEnter={event => showHelpTip(event.currentTarget)}
+                onMouseEnter={event => showHelpTip(event.currentTarget, 'x-dsh')}
                 onMouseLeave={hideHelpTipSoon}
-                onFocus={event => showHelpTip(event.currentTarget)}
+                onFocus={event => showHelpTip(event.currentTarget, 'x-dsh')}
                 onBlur={hideHelpTipSoon}
               >
                 <IconHelp size={14} />
               </button>
             </span>
-            <textarea
-              autoFocus
-              spellCheck={false}
-              placeholder={MCP_SERVERS_PLACEHOLDER}
+            <JsonEditor
               value={json}
-              onChange={event => {
-                setJson(event.target.value)
+              onChange={value => {
+                setJson(value)
                 setPrivateWarning(false)
                 setPrivateConfirmed(false)
                 setError(null)
@@ -4521,8 +5011,10 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
               </label>
             </>
           )}
-          {error !== null && !privateWarning && <p className="dshc-dialog-error">{error}</p>}
         </div>
+        {error !== null && !privateWarning && (
+          <div className="dshc-dialog-alert" role="alert">{error}</div>
+        )}
         <div className="dshc-dialog-actions">
           <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={pending} onClick={onClose}>
             取消
@@ -4602,13 +5094,22 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
             setHelpTip(null)
           }}
         >
-          <strong>可选扩展：x-dsh</strong>
-          <span>可在每个 server 配置里指定描述、类别与示例，优先于下方表单：</span>
-          <code>{`"x-dsh": {
+          {helpTip.kind === 'import' ? (
+            <>
+              <strong>自定义连接器</strong>
+              <span>粘贴 mcpServers JSON，支持 Streamable HTTP 与 stdio 两类 MCP Server。</span>
+            </>
+          ) : (
+            <>
+              <strong>可选扩展：x-dsh</strong>
+              <span>可在每个 server 配置里指定描述、类别与示例，优先于下方表单：</span>
+              <code>{`"x-dsh": {
   "description": "查询仓库结构与文档",
   "category": "知识检索",
   "examples": ["用 DeepWiki 查 facebook/react 的仓库结构"]
 }`}</code>
+            </>
+          )}
         </div>,
         document.body,
       )}
@@ -4839,6 +5340,7 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-dialog-credential{width:min(460px,100%)}
 .dshc-dialog-instance{width:min(460px,100%)}
 .dshc-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:22px 14px 12px 24px}
+.dshc-dialog-head-title{display:flex;align-items:center;gap:6px;min-width:0}
 .dshc-dialog-head-detail{gap:12px}
 .dshc-dialog-head h2{margin:0;font-size:16px;font-weight:500;line-height:24px}
 .dshc-dialog-avatar{width:44px;height:44px}
@@ -4865,6 +5367,10 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-field input::placeholder{color:var(--dsw-alias-label-caption)}
 .dshc-field input:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
 .dshc-field textarea{box-sizing:border-box;min-height:180px;max-height:320px;padding:10px 14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:12px/18px var(--dsw-font-markdown-code-font-family);outline:none;resize:vertical}
+.dshc-json-editor{position:relative;height:260px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);overflow:hidden;background:#fff}
+.dshc-json-editor-mount{position:absolute;inset:0}
+.dshc-json-editor-fallback{position:absolute;inset:0;box-sizing:border-box;width:100%;height:100%;padding:10px 14px;border:0;outline:0;resize:none;background:#fff;color:var(--dsw-alias-label-primary);font:12px/18px var(--dsw-font-markdown-code-font-family)}
+.dshc-json-editor-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:6px;background:color-mix(in srgb,#fff 88%,transparent);color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;pointer-events:none}
 .dshc-field textarea:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
 .dshc-field textarea.dshc-examples-input{min-height:72px;max-height:120px;padding:8px 12px;font:inherit;font-size:13px;line-height:20px}
 .dshc-field-label{display:flex;align-items:center;gap:4px}
@@ -4887,6 +5393,7 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-link{color:var(--dsw-alias-state-business-primary);text-decoration:none}
 .dshc-link:hover{text-decoration:underline}
 .dshc-dialog-error{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere}
+.dshc-dialog-alert{margin:0 24px;padding:8px 10px;border:.5px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 32%,transparent);border-radius:var(--dsw-radius-md);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 7%,transparent);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
 .dshc-tools{display:flex;flex-direction:column;gap:8px;min-height:0}
 .dshc-tools-head{display:flex;align-items:center;gap:8px}
 .dshc-tools-head h3{margin:0;font-size:14px;font-weight:500;line-height:20px}

@@ -104,7 +104,7 @@ npm run check        # typecheck + build + provider/instance 校验与测试
 
 ## 自定义连接器
 
-面板右上角「自定义连接器」接受标准 `mcpServers` JSON：
+面板右上角「自定义连接器」接受标准 `mcpServers` JSON，编辑器为 Monaco（行号、JSON 语法高亮、括号匹配与错误提示）；新建时预填一份可编辑的示例模板，支持 Streamable HTTP 与 stdio 的说明放在标题旁问号中：
 
 ```json
 {
@@ -133,13 +133,14 @@ npm run check        # typecheck + build + provider/instance 校验与测试
 - 类别可输入新名称，内置类别与同名自定义类别会合并；`全部`、`自定义` 为保留名，来源仍用「自定义」badge 表示。
 - 主按钮「导入并连接」只对单个 server 自动安装并连接；多个 server 时请用「仅导入」，导入后分别连接。
 - 自定义卡片在未安装态可从「更多」直接删除；已连接时「更多」提供「编辑配置」「断开」与「删除」：断开只移除连接和工具、保留连接器定义，删除会一并清理连接记录、loader 条目和连接器定义。详情弹窗内同样保留这些入口。
-- 「编辑配置」会读取当前配置并以 JSON 编辑；描述、类别、示例与新增态一致，以 JSON 的 `x-dsh` 为默认值，表单留空即沿用、填写覆盖。`headers` / `env` 的值与 URL 查询参数用 `<已保存>` 占位，不回显；保持占位会沿用原值，填写新值则替换。`serverName` 不允许修改。修改地址、命令、请求头或环境变量会断开已有连接，保存后需重新安装；仅修改描述、类别、示例不会断开。
+- 「编辑配置」会读取当前配置并以 JSON 编辑；描述、类别、示例与新增态一致，以 JSON 的 `x-dsh` 为默认值，表单留空即沿用、填写覆盖。`headers` / `env` 的值与 URL 查询参数用 `<已保存>` 占位，不回显；保持占位会沿用原值，填写新值则替换。`serverName` 不允许修改。修改地址、命令、请求头或环境变量会断开已有连接，保存后需重新安装；仅修改描述、类别、示例不会断开。保存失败时错误固定显示在弹窗底部、按钮上方，不会藏在滚动内容里。
 - 没有示例的卡片不再显示负向提示，「试试这样用」整节直接隐藏。
-- `serverName` 只允许 1–32 位字母、数字、下划线或短横线，且不能与内置或已有自定义连接冲突。
+- `serverName` 支持普通名称（字母、数字、点、下划线、短横线）和 npm scoped 形式（如 `@negokaz/excel-mcp-server`）。界面保留原始名称；DSH loader 需要 1–32 位 `[A-Za-z0-9_-]`，插件会自动派生内部名称（如 `negokaz-excel-mcp-server`），不能与内置或已有自定义连接冲突。
+- 编辑配置时不允许改原始 `serverName`；JSON 中仍显示原始名称，内部 safe name 保持不变。
 - `url` 与 `command` 二选一；`headers` / `env` 的值只保存在宿主侧 storage domain，目录与连接接口不回传；编辑配置接口只返回占位值。
 - `localhost`、内网 IP、`.local` / `.internal` 地址首次提交返回 `private_url_confirmation`，面板勾选确认后重试。
-- stdio 会在本机启动命令，只应导入可信配置；连接后工具以 `mcp__<serverName>__*` 注册。
-- 工具探测：HTTP 与 stdio 均最多等待 30 秒；GitLab.com 的 initialize + tools/list 实测可达 15 秒，超时按连接失败处理并删除 loader 条目。启用失败时错误写入连接记录，卡片内展示，页面顶部不再出现错误条。
+- stdio 会在本机启动命令，只应导入可信配置；连接后工具以 `mcp__<内部 serverName>__*` 注册（scoped 原名会先转换为内部 safe name）。
+- 工具探测：HTTP 最多等待 30 秒；stdio 单独放宽到 120 秒，因为 `npx` 首次运行要先下载依赖（实测冷启动 80 秒以上），按 30 秒会把正常服务误判失败。GitLab.com 的 initialize + tools/list 实测可达 15 秒，超时按连接失败处理并删除 loader 条目。启用失败时错误写入连接记录，卡片内展示，页面顶部不再出现错误条。
 
 ## GitLab.com OAuth
 
@@ -174,12 +175,12 @@ npm run check        # typecheck + build + provider/instance 校验与测试
 - 登录命令退出码非 0 但随后 `auth status` 已登录时，以登录状态为准并清理本次登录的陈旧错误；飞书状态读取 `identities.user.status` / `available` / `tokenStatus`，钉钉状态读取 `user_name` / `corp_name` 等 snake_case 字段，均不依赖单一顶层字段。
 - 安装命令结束到安装后重新探测完成之间保持「安装中」，客户端在阶段结束后补一次刷新，避免安装完成后卡片短暂回退为「未安装」。
 - 飞书相关命令会剔除 `HERMES_HOME` / `OPENCLAW_HOME`，避免 `lark-cli` 误判为 Agent 上下文而拒绝 `config init`。
-- 详情弹窗复用 MCP 详情的标准样式与 560px 宽度，只读：状态与账号合并在头部状态 pill（如「已登录 · 李国川」），正文只保留描述、可用能力与示例；「查看官方文档」移到详情底栏左侧，与「关闭」同一行。安装/登录/解绑只在卡片/更多菜单或独立弹窗中触发，详情底栏不出现生命周期动作。
+- 详情弹窗复用 MCP 详情的标准样式与 560px 宽度：状态与账号合并在头部状态 pill（如「已登录 · 李国川」），正文展示描述、可用能力与示例，不再放官方文档入口。底栏按状态提供主操作：未安装「关闭 + 安装」、已安装未登录「卸载 CLI + 登录」、已登录「卸载 CLI + 完成」；头部 X 始终可关闭。点击主操作后仍打开独立确认/进度弹窗；详情内不嵌命令、表单或日志。
 - 可用能力复用 MCP「可用工具」样式：钉钉来自 `dws schema -f json`，显示 32 个产品；飞书来自 `lark-cli skills list`，显示 28 个 Skills。标题区使用与飞书一致的单个计数 chip（`32 个产品` / `28 个 Skills`），右侧不显示单项命令数，钉钉总命令数 1501 放在 chip 悬浮说明；默认 4 条、可展开全部；目录缓存 10 分钟。
 - 展开箭头统一逻辑：描述固定两行，只有实际被截断（`scrollHeight > clientHeight`）才显示箭头；未截断不显示，点击箭头展开全文并可收起。MCP 工具与 CLI 能力共用同一规则。
 - 安装：卡片「安装」打开独立安装确认/进度弹窗；确认后执行 npm 全局安装；飞书额外执行 `npx skills add larksuite/cli -y -g`。安装确认会展示完整命令，并提示会影响本机 npm 全局目录与 `~/.agents/skills`。
 - 登录：卡片「登录」打开独立登录弹窗；钉钉走 `dws auth login --device --recommend`；飞书先 `lark-cli config init --new` 再 `lark-cli auth login --recommend`。状态 loading 在头部状态 pill；授权链接出现时宿主自动打开默认浏览器，页脚保留「复制链接 / 打开授权页面」兜底。token 由 CLI 自己保存，插件不落 token。
-- 解绑只执行 CLI logout，保留 CLI 与 Skills；本期不做 CLI/Skills 卸载。
+- 解绑只执行 CLI logout，保留 CLI 与 Skills。更多菜单另有「卸载 CLI」：独立二次确认后执行 npm 全局卸载并删除对应官方 Skills，影响本机其他 Agent；未登录但已安装时也可卸载。卸载在宿主侧作为后台任务执行：弹窗显示 spinner 与阶段，可关闭并从卡片 spinner / 更多菜单重新打开进度，卸载中可「取消卸载」；完成后卡片变为「未安装」。
 - Agent 通过 DSH 的 Skill + Shell 使用官方 Skills 与 CLI 命令；CLI 连接器不产生 MCP loader 条目、不显示工具数，但与 MCP 一起出现在 composer 图标条与浮层（未安装/未登录/已停用也可在浮层中处理）。
 - 首次安装/登录需要用户在本机完成，步骤见 `.Knowledge/req-docs/CLI连接器_技术方案.md` 与任务 `user-todos.md`。
 

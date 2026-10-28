@@ -29,6 +29,20 @@ const OAUTH_REFRESH_SKEW_MS = 60 * 1000
 const OAUTH_METADATA_TTL_MS = 10 * 60 * 1000
 // GitLab.com 的 initialize + tools/list 实测可达 15s，5s 会让正常连接误判失败
 const TOOL_WAIT_TIMEOUT_MS = 30_000
+// stdio 首次由 npx 拉包实测要 80s 以上才完成 initialize，按 HTTP 的 30s 会误判
+const STDIO_TOOL_WAIT_TIMEOUT_MS = 120_000
+
+function toolWaitTimeout(transport: string): number {
+  return transport === 'stdio' ? STDIO_TOOL_WAIT_TIMEOUT_MS : TOOL_WAIT_TIMEOUT_MS
+}
+
+function toolWaitMessage(transport: string, timeoutMs: number, lead: string): string {
+  const seconds = timeoutMs / 1000
+  if (transport === 'stdio') {
+    return `${lead}${seconds} 秒内没有发现工具：启动命令没有就绪。请先在终端运行该命令确认能启动，首次用 npx 运行还需要先下载依赖`
+  }
+  return `${lead}${seconds} 秒内没有发现工具，请检查服务地址或凭据`
+}
 
 interface OAuthPending {
   connectorId: string
@@ -347,12 +361,11 @@ export class ConnectionService {
 
     try {
       await this.provision(record, true)
-      const timeoutMs = TOOL_WAIT_TIMEOUT_MS
+      const timeoutMs = toolWaitTimeout(record.transport)
       const tools = await this.waitForTools(record.serverName, timeoutMs)
       if (tools.length === 0) {
         await this.removeEntry(record.connectorId)
-        const hint = record.transport === 'stdio' ? '启动命令或环境' : '服务地址或凭据'
-        throw new ConnectError('connect_failed', `连接已提交，但 ${timeoutMs / 1000} 秒内没有发现工具，请检查${hint}`)
+        throw new ConnectError('connect_failed', toolWaitMessage(record.transport, timeoutMs, '连接已提交，但 '))
       }
     } catch (error) {
       if (previous !== undefined) await this.rememberError(record.key, describeError(error, record))
@@ -524,12 +537,11 @@ export class ConnectionService {
     try {
       fresh = await this.ensureFreshOAuth(updated)
       await this.provision(fresh, true)
-      const timeoutMs = TOOL_WAIT_TIMEOUT_MS
+      const timeoutMs = toolWaitTimeout(fresh.transport)
       const tools = await this.waitForTools(fresh.serverName, timeoutMs)
       if (tools.length === 0) {
         await this.removeEntry(connectorId)
-        const hint = fresh.transport === 'stdio' ? '启动命令或环境' : '服务地址或凭据'
-        throw new ConnectError('connect_failed', `启用失败：${timeoutMs / 1000} 秒内没有发现工具，请检查${hint}`)
+        throw new ConnectError('connect_failed', toolWaitMessage(fresh.transport, timeoutMs, '启用失败：'))
       }
     } catch (error) {
       await this.removeEntry(connectorId).catch(() => undefined)
@@ -788,10 +800,10 @@ export class ConnectionService {
 
     try {
       await this.provision(record, true)
-      const tools = await this.waitForTools(record.serverName, TOOL_WAIT_TIMEOUT_MS)
+      const tools = await this.waitForTools(record.serverName, toolWaitTimeout(record.transport))
       if (tools.length === 0) {
         await this.removeEntry(record.connectorId)
-        throw new ConnectError('connect_failed', `授权成功，但 ${TOOL_WAIT_TIMEOUT_MS / 1000} 秒内没有发现 ${card.name} 工具，请稍后重试`)
+        throw new ConnectError('connect_failed', `授权成功，但 ${toolWaitTimeout(record.transport) / 1000} 秒内没有发现 ${card.name} 工具，请稍后重试`)
       }
     } catch (error) {
       await this.removeEntry(record.connectorId).catch(() => undefined)
@@ -893,7 +905,8 @@ export class ConnectionService {
 
     for (const seed of seeds) {
       if (usedNames.has(seed.serverName)) {
-        throw new ConnectError('server_name_conflict', `serverName "${seed.serverName}" 已被占用，请改名后重试`)
+        const internal = seed.displayName === seed.serverName ? '' : `（内部名称 "${seed.serverName}"）`
+        throw new ConnectError('server_name_conflict', `serverName "${seed.displayName}"${internal} 已被占用，请改名后重试`)
       }
       usedNames.add(seed.serverName)
     }
@@ -905,20 +918,20 @@ export class ConnectionService {
       if (rawCategory !== undefined) {
         const problem = validateCategory(rawCategory)
         if (problem !== undefined) {
-          throw new ConnectError('invalid_category', `${seed.serverName}: ${problem}`)
+          throw new ConnectError('invalid_category', `${seed.displayName}: ${problem}`)
         }
       }
       const category = resolveCategory(rawCategory)
       const rawDescription = descriptionOverride ?? seed.description
       const description = rawDescription?.trim()
       if (description !== undefined && description !== '' && Array.from(description).length > 120) {
-        throw new ConnectError('invalid_description', `${seed.serverName}: 描述最多 120 字`)
+        throw new ConnectError('invalid_description', `${seed.displayName}: 描述最多 120 字`)
       }
       const examples = examplesOverride ?? seed.examples ?? []
       const record: CustomConnectorRecord = {
         key: seed.connectorId,
         connectorId: seed.connectorId,
-        name: seed.serverName,
+        name: seed.displayName,
         serverName: seed.serverName,
         transport: seed.transport,
         url: seed.url,
@@ -971,7 +984,7 @@ export class ConnectionService {
 
     const connections = await this.table()
     return {
-      json: JSON.stringify({ mcpServers: { [record.serverName]: server } }, null, 2),
+      json: JSON.stringify({ mcpServers: { [record.name]: server } }, null, 2),
       installed: connections.get(connectorId) !== undefined,
     }
   }
@@ -995,7 +1008,7 @@ export class ConnectionService {
       throw new ConnectError('invalid_custom_config', '编辑时只能保留一个 Server')
     }
     if (seed.serverName !== previous.serverName) {
-      throw new ConnectError('server_name_conflict', '编辑时不能修改 serverName')
+      throw new ConnectError('server_name_conflict', `编辑时不能修改 serverName（内部名称 "${previous.serverName}"）`)
     }
     assertPrivateUrlsAllowed(seeds, allowPrivate)
 
@@ -1018,7 +1031,7 @@ export class ConnectionService {
     if (rawCategory !== undefined) {
       const problem = validateCategory(rawCategory)
       if (problem !== undefined) {
-        throw new ConnectError('invalid_category', `${seed.serverName}: ${problem}`)
+        throw new ConnectError('invalid_category', `${seed.displayName}: ${problem}`)
       }
     }
     const category = resolveCategory(rawCategory)
@@ -1027,7 +1040,7 @@ export class ConnectionService {
       : batchDescription
     const description = rawDescription?.trim()
     if (description !== undefined && description !== '' && Array.from(description).length > 120) {
-      throw new ConnectError('invalid_description', `${seed.serverName}: 描述最多 120 字`)
+      throw new ConnectError('invalid_description', `${seed.displayName}: 描述最多 120 字`)
     }
     const examples = batchExamples !== undefined && batchExamples.length > 0
       ? batchExamples
@@ -1037,12 +1050,13 @@ export class ConnectionService {
     if (url !== undefined && url.endsWith(`?${CUSTOM_SECRET_PLACEHOLDER}`)) {
       throw new ConnectError('invalid_custom_config', 'URL 中的占位值没有已保存的查询参数，请填写完整地址')
     }
-    const headers = mergeSecretValues(seed.headers, previous.headers, `${seed.serverName}.headers`)
-    const env = mergeSecretValues(seed.env, previous.env, `${seed.serverName}.env`)
+    const headers = mergeSecretValues(seed.headers, previous.headers, `${seed.displayName}.headers`)
+    const env = mergeSecretValues(seed.env, previous.env, `${seed.displayName}.env`)
 
     const { description: _oldDescription, examples: _oldExamples, ...rest } = previous
     const record: CustomConnectorRecord = {
       ...rest,
+      name: seed.displayName,
       transport: seed.transport,
       url,
       command: seed.command,

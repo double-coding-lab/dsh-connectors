@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { ConnectError } from './errors.js'
 import { MAX_EXAMPLES } from '../shared/categories.js'
 
@@ -5,6 +7,7 @@ export type CustomTransport = 'streamable-http' | 'stdio'
 
 export interface McpServerSeed {
   serverName: string
+  displayName: string
   connectorId: string
   transport: CustomTransport
   url?: string
@@ -18,8 +21,18 @@ export interface McpServerSeed {
   examples?: string[]
 }
 
-const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/
+const CONFIG_NAME_RE = /^(?:@[A-Za-z0-9][A-Za-z0-9._-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*$/
+const MAX_CONFIG_NAME_LENGTH = 128
 const MAX_SERVERS = 20
+
+function toDshServerName(displayName: string): string {
+  const withoutScope = displayName.startsWith('@') ? displayName.slice(1) : displayName
+  const base = withoutScope.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'mcp-server'
+  const prefixed = /^[A-Za-z0-9]/.test(base) ? base : `m-${base}`
+  if (prefixed.length <= 32) return prefixed
+  const hash = createHash('sha256').update(displayName).digest('hex').slice(0, 8)
+  return `${prefixed.slice(0, 23)}-${hash}`
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -79,25 +92,26 @@ function parseXdsh(raw: Record<string, unknown>, serverName: string): { category
   }
 }
 
-function parseServer(serverName: string, raw: unknown): McpServerSeed {
-  if (!SERVER_NAME_RE.test(serverName)) {
+function parseServer(displayName: string, raw: unknown): McpServerSeed {
+  if (displayName.length > MAX_CONFIG_NAME_LENGTH || !CONFIG_NAME_RE.test(displayName)) {
     throw new ConnectError(
       'invalid_server_name',
-      `serverName "${serverName}" 非法，只允许 1-32 位字母、数字、下划线或短横线`,
+      `serverName "${displayName}" 非法，只允许字母、数字、点、下划线、短横线，或 @scope/package 形式（最长 ${MAX_CONFIG_NAME_LENGTH} 字符）`,
     )
   }
+  const serverName = toDshServerName(displayName)
   if (!isRecord(raw)) {
-    throw new ConnectError('invalid_server_config', `${serverName} 的配置必须是对象`)
+    throw new ConnectError('invalid_server_config', `${displayName} 的配置必须是对象`)
   }
-  const metadata = parseXdsh(raw, serverName)
+  const metadata = parseXdsh(raw, displayName)
 
-  const url = optionalString(raw.url, `${serverName}.url`)
-  const command = optionalString(raw.command, `${serverName}.command`)
+  const url = optionalString(raw.url, `${displayName}.url`)
+  const command = optionalString(raw.command, `${displayName}.command`)
   if (url !== undefined && command !== undefined) {
-    throw new ConnectError('invalid_server_config', `${serverName} 不能同时配置 url 与 command`)
+    throw new ConnectError('invalid_server_config', `${displayName} 不能同时配置 url 与 command`)
   }
   if (url === undefined && command === undefined) {
-    throw new ConnectError('invalid_server_config', `${serverName} 需要配置 url 或 command`)
+    throw new ConnectError('invalid_server_config', `${displayName} 需要配置 url 或 command`)
   }
 
   if (url !== undefined) {
@@ -105,11 +119,12 @@ function parseServer(serverName: string, raw: unknown): McpServerSeed {
       const parsed = new URL(url)
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('bad protocol')
     } catch {
-      throw new ConnectError('invalid_server_url', `${serverName} 的 url 必须是合法的 http(s) 地址`)
+      throw new ConnectError('invalid_server_url', `${displayName} 的 url 必须是合法的 http(s) 地址`)
     }
-    const headers = stringRecord(raw.headers, `${serverName}.headers`)
+    const headers = stringRecord(raw.headers, `${displayName}.headers`)
     return {
       serverName,
+      displayName,
       connectorId: `custom-${serverName}`,
       transport: 'streamable-http',
       url,
@@ -121,13 +136,14 @@ function parseServer(serverName: string, raw: unknown): McpServerSeed {
   }
 
   if (command === undefined) {
-    throw new ConnectError('invalid_server_config', `${serverName} 需要配置 command`)
+    throw new ConnectError('invalid_server_config', `${displayName} 需要配置 command`)
   }
-  const args = stringArray(raw.args, `${serverName}.args`)
-  const env = stringRecord(raw.env, `${serverName}.env`)
-  const cwd = optionalString(raw.cwd, `${serverName}.cwd`)
+  const args = stringArray(raw.args, `${displayName}.args`)
+  const env = stringRecord(raw.env, `${displayName}.env`)
+  const cwd = optionalString(raw.cwd, `${displayName}.cwd`)
   return {
     serverName,
+    displayName,
     connectorId: `custom-${serverName}`,
     transport: 'stdio',
     command,
@@ -158,7 +174,19 @@ export function parseMcpServers(text: string): McpServerSeed[] {
   if (entries.length > MAX_SERVERS) {
     throw new ConnectError('invalid_mcp_servers', `一次最多导入 ${MAX_SERVERS} 个 MCP Server`)
   }
-  return entries.map(([serverName, raw]) => parseServer(serverName, raw))
+  const seeds = entries.map(([serverName, raw]) => parseServer(serverName, raw))
+  const seen = new Map<string, string>()
+  for (const seed of seeds) {
+    const previous = seen.get(seed.serverName)
+    if (previous !== undefined) {
+      throw new ConnectError(
+        'server_name_conflict',
+        `serverName "${seed.displayName}" 与 "${previous}" 映射到同一内部名称 "${seed.serverName}"，请修改其中一个`,
+      )
+    }
+    seen.set(seed.serverName, seed.displayName)
+  }
+  return seeds
 }
 
 function isPrivateHost(hostname: string): boolean {

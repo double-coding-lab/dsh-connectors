@@ -143,7 +143,7 @@ export const ROUTE_PREFIX = '/dsh-connectors'
 
 export type CliConnectorId = 'dingtalk' | 'feishu'
 
-export type CliPhase = 'idle' | 'installing' | 'configuring' | 'logging_in' | 'error'
+export type CliPhase = 'idle' | 'installing' | 'configuring' | 'logging_in' | 'uninstalling' | 'error'
 
 export interface CliCapabilityItem {
   id: string

@@ -51,6 +51,7 @@
     "dsh": ">=0.2.0-rc.2 <0.3.0"
   },
   "dependencies": {
+    "monaco-editor": "^0.57.0",
     "zod": "4.4.3"
   },
   "peerDependencies": {

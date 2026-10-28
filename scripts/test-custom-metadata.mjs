@@ -52,6 +52,18 @@ const [stdioSeed] = parseMcpServers(JSON.stringify({
 assert.deepEqual(stdioSeed?.examples, ['列出可用工具'])
 assert.equal(stdioSeed?.transport, 'stdio')
 
+const [scopedSeed] = parseMcpServers(JSON.stringify({
+  mcpServers: {
+    '@negokaz/excel-mcp-server': {
+      command: 'npx',
+      args: ['-y', '@negokaz/excel-mcp-server'],
+    },
+  },
+}))
+assert.equal(scopedSeed?.displayName, '@negokaz/excel-mcp-server')
+assert.equal(scopedSeed?.serverName, 'negokaz-excel-mcp-server')
+assert.equal(scopedSeed?.connectorId, 'custom-negokaz-excel-mcp-server')
+
 assert.throws(
   () => parseMcpServers(JSON.stringify({
     mcpServers: {
@@ -123,6 +135,20 @@ const overridden = await makeService().importCustom(singleXdsh, false, {
 assert.equal(overridden[0]?.category, '开发工具')
 assert.equal(overridden[0]?.summary, '表单描述')
 assert.deepEqual(overridden[0]?.examples, ['表单示例'])
+
+const scopedService = makeService()
+const scopedCards = await scopedService.importCustom(JSON.stringify({
+  mcpServers: {
+    '@negokaz/excel-mcp-server': {
+      command: 'npx',
+      args: ['-y', '@negokaz/excel-mcp-server'],
+    },
+  },
+}), false, {})
+assert.equal(scopedCards[0]?.name, '@negokaz/excel-mcp-server')
+assert.equal(scopedCards[0]?.server.serverName, 'negokaz-excel-mcp-server')
+const scopedConfig = await scopedService.customConfig(scopedCards[0].id)
+assert.equal(JSON.parse(scopedConfig.json).mcpServers['@negokaz/excel-mcp-server'].command, 'npx')
 
 const fallback = await makeService().importCustom(singleXdsh, false, {})
 assert.equal(fallback[0]?.category, '知识检索')

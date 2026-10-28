@@ -47,6 +47,7 @@ export interface CliAdapter {
   capabilities?: CliCapabilitySpec
   unsetEnv?: string[]
   install: CliInstallStep[]
+  uninstall: CliInstallStep[]
   skills: {
     expectedPrefix: string
     expected: string[]
@@ -239,6 +240,9 @@ export const CLI_ADAPTERS: Record<CliConnectorId, CliAdapter> = {
     install: [
       { label: '安装 dws CLI', command: resolveNpmCommand(), args: ['install', '-g', 'dingtalk-workspace-cli'] },
     ],
+    uninstall: [
+      { label: '卸载 dws CLI', command: resolveNpmCommand(), args: ['uninstall', '-g', 'dingtalk-workspace-cli'] },
+    ],
     skills: {
       expectedPrefix: 'dingtalk-',
       expected: ['dingtalk-aitable', 'dingtalk-calendar', 'dingtalk-chat', 'dingtalk-contact', 'dingtalk-doc', 'dingtalk-drive', 'dingtalk-todo', 'dingtalk-wiki'],
@@ -271,6 +275,9 @@ export const CLI_ADAPTERS: Record<CliConnectorId, CliAdapter> = {
     install: [
       { label: '安装 lark-cli', command: resolveNpmCommand(), args: ['install', '-g', '@larksuite/cli'] },
       { label: '安装飞书 Skills', command: resolveNpxCommand(), args: ['skills', 'add', 'larksuite/cli', '-y', '-g'] },
+    ],
+    uninstall: [
+      { label: '卸载 lark-cli', command: resolveNpmCommand(), args: ['uninstall', '-g', '@larksuite/cli'] },
     ],
     skills: {
       expectedPrefix: 'lark-',

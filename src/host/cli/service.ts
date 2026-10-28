@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, type Dirent } from 'node:fs'
+import { existsSync, readdirSync, rmSync, type Dirent } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -30,7 +30,7 @@ export interface CliServiceContext {
 
 interface CliJob {
   connectorId: CliConnectorId
-  kind: 'install' | 'login'
+  kind: 'install' | 'login' | 'uninstall'
   phase: CliPhase
   stage: string
   link?: string
@@ -188,6 +188,32 @@ export class CliConnectorService {
     }
     names.sort((left, right) => left.localeCompare(right, 'zh-CN'))
     return { installed: names.length > 0, count: names.length, names, ...(dir === undefined ? {} : { dir }) }
+  }
+
+  private removeSkills(adapter: CliAdapter): number {
+    let removed = 0
+    for (const root of skillDirs()) {
+      if (!existsSync(root)) continue
+      let entries: Dirent[]
+      try {
+        entries = readdirSync(root, { withFileTypes: true }) as Dirent[]
+      } catch {
+        continue
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        if (!entry.name.startsWith(adapter.skills.expectedPrefix)) continue
+        const dir = join(root, entry.name)
+        if (!existsSync(join(dir, 'SKILL.md'))) continue
+        try {
+          rmSync(dir, { recursive: true, force: true })
+          removed += 1
+        } catch {
+          // 单个 Skills 删除失败不阻断其余清理
+        }
+      }
+    }
+    return removed
   }
 
   private mergeJob(view: CliConnectorView): CliConnectorView {
@@ -489,6 +515,84 @@ export class CliConnectorService {
     return this.refresh(adapter.id)
   }
 
+  async startUninstall(id: string): Promise<CliConnectorView> {
+    const adapter = getAdapter(id)
+    if (adapter === undefined) throw new ConnectError('not_found', '未知的 CLI 连接器')
+    this.assertIdle(adapter.id)
+    const job: CliJob = {
+      connectorId: adapter.id,
+      kind: 'uninstall',
+      phase: 'uninstalling',
+      stage: '准备卸载',
+      output: '',
+      cancel: false,
+      done: false,
+      settled: false,
+    }
+    this.jobs.set(adapter.id, job)
+    void (async () => {
+      try {
+        const binPath = await resolveBinary(adapter.bin, this.exec)
+        if (binPath !== null) {
+          job.stage = '退出登录'
+          const env = commandEnv(adapter)
+          await this.exec(binPath, adapter.auth.logout.args, {
+            timeoutMs: STATUS_TIMEOUT_MS,
+            acceptFailure: true,
+            ...(env === undefined ? {} : { env }),
+          }).catch(() => undefined)
+          if (job.cancel) return
+          for (const step of adapter.uninstall) {
+            if (job.cancel) return
+            job.stage = step.label
+            const handle = spawnStreaming(step.command, step.args, {
+              timeoutMs: INSTALL_TIMEOUT_MS,
+              onOutput: chunk => {
+                job.output = trimOutput(job.output, chunk.text)
+              },
+              ...(env === undefined ? {} : { env }),
+            })
+            job.child = handle.child
+            const result = await handle.done
+            if (job.cancel) return
+            if (result.code !== 0) {
+              throw new Error(`${step.label}失败：${this.tail(result.stderr || result.stdout)}`)
+            }
+          }
+        }
+      } catch (error) {
+        job.error = error instanceof Error ? error.message : String(error)
+        job.phase = 'error'
+      } finally {
+        job.done = true
+      }
+      if (job.cancel) {
+        await this.refresh(adapter.id).catch(() => undefined)
+        job.settled = true
+        return
+      }
+      if (job.error !== undefined) {
+        job.settled = true
+        return
+      }
+      try {
+        job.stage = '删除 Skills'
+        this.removeSkills(adapter)
+        this.capabilityCache.delete(adapter.id)
+        this.cache.delete(adapter.id)
+        const table = await this.table()
+        await table.delete(adapter.id)
+        job.stage = '完成'
+        job.settled = true
+      } catch (error) {
+        job.error = error instanceof Error ? error.message : String(error)
+        job.phase = 'error'
+        job.settled = true
+      }
+    })()
+    return this.view(adapter.id)
+  }
+
   async cancel(id: string): Promise<CliConnectorView> {
     const adapter = getAdapter(id)
     if (adapter === undefined) throw new ConnectError('not_found', '未知的 CLI 连接器')
@@ -498,6 +602,7 @@ export class CliConnectorService {
     job.done = true
     job.settled = true
     job.child?.kill()
+    if (job.kind === 'uninstall') return this.refresh(adapter.id).catch(() => this.view(adapter.id))
     return this.view(adapter.id)
   }
 
@@ -508,6 +613,6 @@ export class CliConnectorService {
 
   private assertIdle(id: string): void {
     const job = this.jobs.get(id)
-    if (job !== undefined && !job.done) throw new ConnectError('cli_busy', '当前连接器正在安装或登录，请稍候')
+    if (job !== undefined && !job.done) throw new ConnectError('cli_busy', '当前连接器正在安装、登录或卸载，请稍候')
   }
 }

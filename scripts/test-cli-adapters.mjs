@@ -7,11 +7,13 @@ const dingtalk = CLI_ADAPTERS.dingtalk
 const feishu = CLI_ADAPTERS.feishu
 
 assert.ok(dingtalk.install.some(step => step.args.includes('dingtalk-workspace-cli')), 'dingtalk install package')
+assert.ok(dingtalk.uninstall.some(step => step.args.includes('uninstall') && step.args.includes('dingtalk-workspace-cli')), 'dingtalk uninstall package')
 assert.ok(dingtalk.auth.login.args.includes('--device'), 'dingtalk device login')
 assert.ok(dingtalk.auth.status.args.includes('--format') && dingtalk.auth.status.args.includes('json'), 'dingtalk json status')
 
 assert.ok(feishu.install.some(step => step.args.includes('@larksuite/cli')), 'feishu cli install')
 assert.ok(feishu.install.some(step => step.args.includes('skills') && step.args.includes('larksuite/cli')), 'feishu skills install')
+assert.ok(feishu.uninstall.some(step => step.args.includes('uninstall') && step.args.includes('@larksuite/cli')), 'feishu uninstall package')
 assert.ok(feishu.auth.prepare !== undefined, 'feishu needs config init')
 assert.ok(feishu.auth.prepare.args.includes('--new'), 'feishu config init creates a fresh app')
 assert.equal(feishu.auth.login.args.at(-1), '--recommend', 'feishu recommend login')
