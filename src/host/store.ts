@@ -74,3 +74,34 @@ export function defineConnectorDomain() {
     },
   })
 }
+
+export const cliConnectorRecordSchema = z.object({
+  key: z.string().min(1),
+  connectorId: z.string().min(1),
+  installed: z.boolean().optional(),
+  enabled: z.boolean().optional(),
+  installedVersion: z.string().optional(),
+  authenticated: z.boolean(),
+  account: z.object({
+    name: z.string().optional(),
+    email: z.string().optional(),
+    org: z.string().optional(),
+  }).optional(),
+  skillsCount: z.number().int().nonnegative().optional(),
+  lastError: z.string().optional(),
+  lastCheckedAt: z.number().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+
+export type CliConnectorRecord = z.infer<typeof cliConnectorRecordSchema>
+
+export function defineCliDomain() {
+  return defineDomain({
+    name: 'dsh_connectors_cli',
+    version: 1,
+    tables: {
+      cli_connectors: domainTable<string, CliConnectorRecord>(cliConnectorRecordSchema),
+    },
+  })
+}

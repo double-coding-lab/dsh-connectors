@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 
 import { loadBuiltinCatalog } from './catalog.js'
+import type { CliConnectorService } from './cli/service.js'
 import type { ConnectionService } from './connections.js'
 import { ConnectError } from './errors.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
@@ -19,6 +20,7 @@ export interface RouteOptions {
   version: string
   capabilities: () => Record<string, boolean>
   connections: ConnectionService
+  cli: CliConnectorService
 }
 
 const MAX_BODY = 16 * 1024
@@ -112,8 +114,13 @@ function readJson(req: IncomingMessage): Promise<unknown> {
 function statusFor(error: ConnectError): number {
   if (error.code === 'not_found') return 404
   if (error.code === 'server_name_conflict') return 409
+  if (error.code === 'cli_busy') return 409
+  if (error.code === 'cli_not_installed') return 409
   if (error.code === 'loader_unavailable') return 503
   if (error.code === 'connect_failed') return 502
+  if (error.code === 'cli_install_failed' || error.code === 'cli_login_failed' || error.code === 'cli_logout_failed') return 502
+  if (error.code === 'cli_login_timeout') return 504
+  if (error.code === 'cli_status_failed') return 502
   if (error.code === 'oauth_unreachable' || error.code === 'oauth_failed') return 502
   return 400
 }
@@ -382,6 +389,67 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
       if (connectorId !== undefined) {
         await options.connections.disconnect(decodeURIComponent(connectorId))
         json(res, 200, { ok: true, value: {} })
+        return
+      }
+
+      if (req.method === 'GET' && path === `${ROUTE_PREFIX}/api/cli`) {
+        json(res, 200, { ok: true, value: { connectors: await options.cli.list() } })
+        return
+      }
+
+      const cliPatchId = req.method === 'PATCH'
+        ? new RegExp(`^${ROUTE_PREFIX}/api/cli/([^/]+)$`).exec(path)?.[1]
+        : undefined
+      if (cliPatchId !== undefined) {
+        const body = await readJson(req) as { enabled?: unknown }
+        if (typeof body.enabled !== 'boolean') {
+          throw new ConnectError('invalid_request', '缺少 enabled 参数')
+        }
+        const id = decodeURIComponent(cliPatchId)
+        json(res, 200, { ok: true, value: { connector: await options.cli.setEnabled(id, body.enabled) } })
+        return
+      }
+
+      const cliAction = req.method === 'POST'
+        ? new RegExp(`^${ROUTE_PREFIX}/api/cli/([^/]+)/(install|login|logout|cancel)$`).exec(path)
+        : undefined
+      if (cliAction !== null && cliAction !== undefined) {
+        const rawId = cliAction[1]
+        const action = cliAction[2]
+        if (rawId === undefined || action === undefined) {
+          throw new ConnectError('invalid_request', '缺少 CLI 连接器参数')
+        }
+        const id = decodeURIComponent(rawId)
+        if (action === 'install') {
+          json(res, 200, { ok: true, value: { connector: await options.cli.startInstall(id) } })
+          return
+        }
+        if (action === 'login') {
+          json(res, 200, { ok: true, value: { connector: await options.cli.startLogin(id) } })
+          return
+        }
+        if (action === 'logout') {
+          json(res, 200, { ok: true, value: { connector: await options.cli.logout(id) } })
+          return
+        }
+        json(res, 200, { ok: true, value: { connector: await options.cli.cancel(id) } })
+        return
+      }
+
+      const cliLogId = req.method === 'GET'
+        ? new RegExp(`^${ROUTE_PREFIX}/api/cli/([^/]+)/log$`).exec(path)?.[1]
+        : undefined
+      if (cliLogId !== undefined) {
+        json(res, 200, { ok: true, value: { output: options.cli.log(decodeURIComponent(cliLogId)) } })
+        return
+      }
+
+      const cliId = req.method === 'GET'
+        ? new RegExp(`^${ROUTE_PREFIX}/api/cli/([^/]+)$`).exec(path)?.[1]
+        : undefined
+      if (cliId !== undefined) {
+        const id = decodeURIComponent(cliId)
+        json(res, 200, { ok: true, value: { connector: await options.cli.refresh(id) } })
         return
       }
 

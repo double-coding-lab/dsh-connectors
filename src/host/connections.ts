@@ -5,7 +5,7 @@ import { MAX_EXAMPLES, resolveCategory, validateCategory } from '../shared/categ
 import { CUSTOM_SECRET_PLACEHOLDER } from '../shared/customConfig.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
 import { ConnectError } from './errors.js'
-import { resolveInstanceMcpUrl } from './instanceUrl.js'
+import { resolveInstanceUrl } from './instanceUrl.js'
 import { assertPrivateUrlsAllowed, parseMcpServers } from './mcpServers.js'
 import { openExternal } from './openExternal.js'
 import {
@@ -278,7 +278,9 @@ export class ConnectionService {
     const table = await this.table()
     for (const [, record] of table.entries()) {
       if (!record.enabled || this.disposing) continue
-      if (this.needsAuth(this.cardFor(record.connectorId)) && record.auth === undefined && record.oauth === undefined) continue
+      const card = this.cardFor(record.connectorId)
+      if (card?.instance !== undefined && record.url === undefined) continue
+      if (this.needsAuth(card) && record.auth === undefined && record.oauth === undefined) continue
       try {
         const fresh = await this.ensureFreshOAuth(record)
         if (fresh !== record) await table.put(fresh.key, fresh)
@@ -297,7 +299,10 @@ export class ConnectionService {
     let record: ConnectionRecord
 
     if (builtinCard !== undefined && builtinCard.published) {
-      if (builtinCard.auth.type === 'oauth2') return this.installOAuth(builtinCard, instanceUrl)
+      if (builtinCard.instance !== undefined) {
+        return this.connectInstance(builtinCard, token, instanceUrl)
+      }
+      if (builtinCard.auth.type === 'oauth2') return this.installOAuth(builtinCard)
       if (
         (builtinCard.auth.type === 'bearer' || builtinCard.auth.type === 'header')
         && (token === undefined || token.trim() === '')
@@ -359,6 +364,70 @@ export class ConnectionService {
     return this.view(record)
   }
 
+  private async connectInstance(card: ConnectorCard, token?: string, instanceUrl?: string): Promise<ConnectionView> {
+    const table = await this.table()
+    const previous = table.get(card.id)
+    const now = Date.now()
+    const raw = instanceUrl?.trim()
+    let url = previous?.url
+    if (raw !== undefined && raw !== '') url = resolveInstanceUrl(raw)
+
+    const base: ConnectionRecord = {
+      key: card.id,
+      connectorId: card.id,
+      name: card.name,
+      serverName: card.server.serverName,
+      transport: card.server.transport,
+      enabled: true,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    }
+
+    if (url === undefined) {
+      await this.removeEntry(card.id)
+      await table.put(base.key, base)
+      return this.view(base)
+    }
+
+    if (card.auth.type === 'oauth2') {
+      await this.removeEntry(card.id)
+      const record: ConnectionRecord = { ...base, url }
+      await table.put(record.key, record)
+      return this.view(record)
+    }
+
+    if (
+      (card.auth.type === 'bearer' || card.auth.type === 'header')
+      && (token === undefined || token.trim() === '')
+    ) {
+      await this.removeEntry(card.id)
+      const record: ConnectionRecord = { ...base, url }
+      await table.put(record.key, record)
+      return this.view(record)
+    }
+
+    const record: ConnectionRecord = { ...base, url, auth: this.authFor(card, token) }
+    try {
+      await this.provision(record, true)
+      const timeoutMs = TOOL_WAIT_TIMEOUT_MS
+      const tools = await this.waitForTools(record.serverName, timeoutMs)
+      if (tools.length === 0) {
+        await this.removeEntry(record.connectorId)
+        throw new ConnectError(
+          'connect_failed',
+          `连接已提交，但 ${timeoutMs / 1000} 秒内没有发现工具，请检查服务地址或凭据`,
+        )
+      }
+    } catch (error) {
+      if (previous !== undefined) await this.rememberError(record.key, describeError(error, record))
+      if (error instanceof ConnectError) throw error
+      throw new ConnectError('connect_failed', describeError(error, record))
+    }
+
+    await table.put(record.key, record)
+    return this.view(record)
+  }
+
   async disconnect(connectorId: string): Promise<void> {
     const table = await this.table()
     await this.removeEntry(connectorId)
@@ -385,18 +454,14 @@ export class ConnectionService {
 
   async reconfigureInstance(connectorId: string, instanceUrl: string): Promise<ConnectionView> {
     const card = this.catalog().find(item => item.id === connectorId)
-    if (card === undefined || !card.published || card.instance === undefined || card.auth.type !== 'oauth2') {
-      throw new ConnectError('not_found', '连接器不存在或不支持更换实例')
+    if (card === undefined || !card.published || card.instance === undefined) {
+      throw new ConnectError('not_found', '连接器不存在或不支持更换地址')
     }
     const table = await this.table()
     const previous = table.get(connectorId)
     if (previous === undefined) throw new ConnectError('not_installed', '请先安装连接器')
 
-    const resolved = resolveInstanceMcpUrl(instanceUrl)
-    const url = card.server.url?.replace('{instance}', resolved.instanceUrl)
-    if (url === undefined || url.includes('{instance}')) {
-      throw new ConnectError('invalid_connector', '连接器地址模板不合法')
-    }
+    const url = resolveInstanceUrl(instanceUrl)
 
     for (const [state, pending] of this.oauthPending) {
       if (pending.connectorId === connectorId) this.oauthPending.delete(state)
@@ -482,31 +547,21 @@ export class ConnectionService {
     return this.view(fresh)
   }
 
-  private async installOAuth(card: ConnectorCard, instanceUrl?: string): Promise<ConnectionView> {
+  private async installOAuth(card: ConnectorCard): Promise<ConnectionView> {
     if (card.auth.type !== 'oauth2') {
       throw new ConnectError('oauth_required', `${card.name} 需要 OAuth 授权，请使用授权流程`)
     }
+    if (card.instance !== undefined) {
+      throw new ConnectError('invalid_connector', '带 instance 的连接器需要先填写服务地址')
+    }
     const server = card.server
+    if (server.url === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
 
     const table = await this.table()
     const previous = table.get(card.id)
     if (previous?.oauth !== undefined) return this.view(previous)
 
-    let url: string | undefined
-    if (card.instance !== undefined) {
-      if (instanceUrl !== undefined && instanceUrl.trim() !== '') {
-        const resolved = resolveInstanceMcpUrl(instanceUrl)
-        url = server.url?.replace('{instance}', resolved.instanceUrl)
-        if (url === undefined || url.includes('{instance}')) {
-          throw new ConnectError('invalid_connector', '连接器地址模板不合法')
-        }
-      } else {
-        url = previous?.url
-      }
-    } else {
-      if (server.url === undefined) throw new ConnectError('invalid_connector', '连接器没有可用的 MCP Server')
-      url = server.url
-    }
+    const url = server.url
 
     const now = Date.now()
     const record: ConnectionRecord = {
@@ -576,7 +631,7 @@ export class ConnectionService {
     const serverUrl = previous.url
     if (serverUrl === undefined) {
       throw card.instance !== undefined
-        ? new ConnectError('instance_required', '请先填写实例地址')
+        ? new ConnectError('instance_required', '请先填写服务地址')
         : new ConnectError('invalid_connector', '连接记录缺少服务地址')
     }
     const cachedMetadata = this.oauthMetadata.get(serverUrl)
@@ -632,7 +687,7 @@ export class ConnectionService {
   ): Promise<OAuthClient> {
     if (auth.registration === 'dcr') {
       if (metadata.registrationEndpoint === undefined) {
-        throw new ConnectError('oauth_failed', '该 GitLab 实例未提供动态客户端注册，暂不支持；请升级实例或使用自定义连接器')
+        throw new ConnectError('oauth_failed', '该实例未提供动态客户端注册，暂不支持；请升级实例或使用自定义连接器')
       }
       return registerOAuthClient(metadata, redirect, auth.clientName ?? 'DSH 连接器')
     }
@@ -1061,13 +1116,15 @@ export class ConnectionService {
   private view(record: ConnectionRecord): ConnectionView {
     const toolDetails = record.enabled ? this.toolDetailsFor(record.serverName) : []
     const card = this.cardFor(record.connectorId)
+    const endpointReady = card?.instance === undefined || record.url !== undefined
     return {
       connectorId: record.connectorId,
       name: record.name,
       serverName: record.serverName,
       transport: record.transport,
       enabled: record.enabled,
-      authorized: !this.needsAuth(card) || record.auth !== undefined || record.oauth !== undefined,
+      authorized: endpointReady
+        && (!this.needsAuth(card) || record.auth !== undefined || record.oauth !== undefined),
       ...(card?.instance === undefined ? {} : { instanceReady: record.url !== undefined }),
       tools: toolDetails.map(tool => tool.name),
       toolDetails,

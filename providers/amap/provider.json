@@ -1,0 +1,34 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "amap",
+  "name": "高德地图",
+  "vendor": "高德",
+  "category": "知识检索",
+  "summary": "查询地点、路线与天气，地址中需带高德 Key。",
+  "description": "高德官方 MCP 服务，填写完整地址并在 query 中带上高德 Key；Key 只保存在本机。",
+  "examples": [
+    "查从北京南站到首都机场的驾车路线",
+    "找附近评分高的咖啡店",
+    "查某个地址的经纬度",
+    "查明天的天气"
+  ],
+  "tags": ["地图", "路线", "天气"],
+  "order": 69,
+  "instance": {
+    "label": "高德 MCP 地址",
+    "placeholder": "https://mcp.amap.com/mcp?key=...",
+    "help": {
+      "url": "https://lbs.amap.com/api/mcp-server/gettingstarted",
+      "label": "查看高德 MCP 接入指引",
+      "hint": "创建 Web 服务 Key 并填入地址的 key 参数。"
+    }
+  },
+  "server": {
+    "serverName": "amap",
+    "transport": "streamable-http"
+  },
+  "auth": {
+    "type": "none"
+  }
+}

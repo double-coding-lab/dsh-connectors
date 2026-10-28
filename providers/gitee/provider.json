@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "gitee",
+  "name": "Gitee",
+  "vendor": "开源中国",
+  "category": "开发工具",
+  "summary": "查询 Gitee 仓库、Issue、Pull Request 与代码。",
+  "description": "Gitee 官方远程 MCP 服务，可查询仓库、Issue、Pull Request、分支与代码内容。",
+  "examples": [
+    "查一个 Gitee 仓库最近的合并请求",
+    "列出我负责的 Issue",
+    "搜索组织里使用某个函数的仓库",
+    "总结一个仓库的目录结构"
+  ],
+  "tags": ["代码托管", "Issue", "Pull Request"],
+  "order": 75,
+  "server": {
+    "serverName": "gitee",
+    "transport": "streamable-http",
+    "url": "https://api.gitee.com/mcp"
+  },
+  "auth": {
+    "type": "bearer",
+    "label": "Gitee 私人令牌",
+    "help": {
+      "url": "https://gitee.com/profile/personal_access_tokens",
+      "label": "创建 Gitee 私人令牌",
+      "hint": "建议勾选 projects、pull_requests、issues 权限；令牌只保存在本机。"
+    }
+  }
+}

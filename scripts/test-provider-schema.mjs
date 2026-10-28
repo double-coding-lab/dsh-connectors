@@ -4,8 +4,8 @@ import { providerDefinitionSchema } from '../dist/host/providers.js'
 
 const base = {
   schemaVersion: 1,
-  id: 'gitlab-self-hosted',
-  name: 'GitLab 自建',
+  id: 'example-instance',
+  name: 'Example',
   category: '开发工具',
   summary: 'test',
   auth: {
@@ -15,27 +15,25 @@ const base = {
     scopes: ['mcp'],
   },
   server: {
-    serverName: 'gitlab-self-hosted',
+    serverName: 'example-instance',
     transport: 'streamable-http',
-    url: '{instance}/api/v4/mcp',
   },
-  instance: { label: 'GitLab 实例地址' },
+  instance: { label: '服务地址' },
 }
 
-assert.equal(providerDefinitionSchema.safeParse(base).success, true, 'instance template should pass')
+assert.equal(providerDefinitionSchema.safeParse(base).success, true, 'instance without url should pass')
 
-const noInstanceTemplate = {
+const instanceWithUrl = {
   ...base,
-  instance: undefined,
+  server: { ...base.server, url: 'https://example.com/mcp' },
 }
-delete noInstanceTemplate.instance
-assert.equal(providerDefinitionSchema.safeParse(noInstanceTemplate).success, false, 'template without instance should fail')
+assert.equal(providerDefinitionSchema.safeParse(instanceWithUrl).success, false, 'instance with url should fail')
 
-const instanceAbsolute = {
+const missingUrl = {
   ...base,
-  server: { ...base.server, url: 'https://example.com/api/v4/mcp' },
 }
-assert.equal(providerDefinitionSchema.safeParse(instanceAbsolute).success, false, 'absolute url with instance should fail')
+delete missingUrl.instance
+assert.equal(providerDefinitionSchema.safeParse(missingUrl).success, false, 'missing url without instance should fail')
 
 const missingLabel = {
   ...base,
@@ -47,13 +45,37 @@ const plainHttps = {
   ...base,
 }
 delete plainHttps.instance
-plainHttps.server = { ...base.server, url: 'https://example.com/api/v4/mcp' }
+plainHttps.server = { ...base.server, url: 'https://example.com/mcp' }
 assert.equal(providerDefinitionSchema.safeParse(plainHttps).success, true, 'https without instance should pass')
 
 const plainHttp = {
   ...plainHttps,
-  server: { ...plainHttps.server, url: 'http://example.com/api/v4/mcp' },
+  server: { ...plainHttps.server, url: 'http://example.com/mcp' },
 }
 assert.equal(providerDefinitionSchema.safeParse(plainHttp).success, false, 'http without instance should fail')
 
-console.log('provider schema instance tests: 6 passed')
+const instanceNone = {
+  ...base,
+  auth: { type: 'none' },
+}
+assert.equal(providerDefinitionSchema.safeParse(instanceNone).success, true, 'instance with none auth should pass')
+
+const instanceHelp = {
+  ...instanceNone,
+  instance: {
+    ...base.instance,
+    help: { url: 'https://example.com/docs/mcp', label: '查看接入指引' },
+  },
+}
+assert.equal(providerDefinitionSchema.safeParse(instanceHelp).success, true, 'instance help with https should pass')
+
+const instanceHelpHttp = {
+  ...instanceHelp,
+  instance: {
+    ...instanceHelp.instance,
+    help: { url: 'http://example.com/docs/mcp', label: '查看接入指引' },
+  },
+}
+assert.equal(providerDefinitionSchema.safeParse(instanceHelpHttp).success, false, 'instance help with http should fail')
+
+console.log('provider schema instance tests: 9 passed')

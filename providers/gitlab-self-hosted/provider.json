@@ -5,8 +5,8 @@
   "name": "GitLab 自建",
   "vendor": "GitLab",
   "category": "开发工具",
-  "summary": "填写自建 GitLab 实例地址，使用 OAuth 接入官方 MCP。",
-  "description": "连接自建 GitLab 实例的官方 MCP 服务。实例需支持 MCP 端点与 OAuth 动态客户端注册；点击安装后在浏览器完成授权，令牌只保存在本机。",
+  "summary": "填写自建 GitLab 的 MCP 地址，使用 OAuth 接入。",
+  "description": "连接自建 GitLab 实例的官方 MCP 服务。填写完整的 MCP 端点地址，实例需支持 OAuth 动态客户端注册；点击安装后在浏览器完成授权，令牌只保存在本机。",
   "examples": [
     "查看 group/project 的开放合并请求，按更新时间排序",
     "总结 group/project 最近的 Issue 和负责人",
@@ -16,14 +16,18 @@
   "tags": ["代码托管", "自建实例"],
   "order": 55,
   "instance": {
-    "label": "GitLab 实例地址",
-    "placeholder": "https://gitlab.example.com",
-    "hint": "可填写带子路径的地址，例如 https://example.com/gitlab；不要填写 /api/v4/mcp。"
+    "label": "GitLab MCP 地址",
+    "placeholder": "http://gitlab.example.com/api/v4/mcp",
+    "hint": "填写完整的 MCP 端点地址，例如 http://gitlab.example.com/api/v4/mcp；不要包含账号密码或锚点。",
+    "help": {
+      "url": "https://docs.gitlab.com/user/model_context_protocol/mcp_server/",
+      "label": "查看 GitLab MCP 文档",
+      "hint": "自建实例将域名替换为你的 GitLab 地址。"
+    }
   },
   "server": {
     "serverName": "gitlab-self-hosted",
-    "transport": "streamable-http",
-    "url": "{instance}/api/v4/mcp"
+    "transport": "streamable-http"
   },
   "auth": {
     "type": "oauth2",

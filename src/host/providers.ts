@@ -10,18 +10,18 @@ export const PROVIDER_CATEGORIES = BUILTIN_CATEGORIES
 
 const httpsUrl = z.string().url().refine(value => value.startsWith('https://'), '必须使用 https 地址')
 
+const helpSchema = z.object({
+  url: httpsUrl,
+  label: z.string().min(1),
+  hint: z.string().min(1).optional(),
+}).strict()
+
 const instanceSchema = z.object({
   label: z.string().min(1),
   placeholder: z.string().min(1).optional(),
   hint: z.string().min(1).optional(),
+  help: helpSchema.optional(),
 }).strict()
-
-export function isInstanceUrlTemplate(value: string): boolean {
-  if (!value.startsWith('{instance}')) return false
-  if (value.indexOf('{instance}', 1) !== -1) return false
-  const rest = value.slice('{instance}'.length)
-  return rest === '' || rest.startsWith('/')
-}
 
 export function isHttpsUrl(value: string): boolean {
   try {
@@ -31,11 +31,7 @@ export function isHttpsUrl(value: string): boolean {
   }
 }
 
-const authHelpSchema = z.object({
-  url: httpsUrl,
-  label: z.string().min(1),
-  hint: z.string().min(1).optional(),
-}).strict()
+const authHelpSchema = helpSchema
 
 const authSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }).strict(),
@@ -81,21 +77,21 @@ export const providerDefinitionSchema = z.object({
   server: z.object({
     serverName: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'serverName 只能包含小写字母、数字、下划线和连字符').optional(),
     transport: z.literal('streamable-http'),
-    url: z.string().min(1),
+    url: z.string().min(1).optional(),
   }).strict(),
   auth: authSchema,
 }).strict().superRefine((provider, ctx) => {
   if (provider.instance !== undefined) {
-    if (!isInstanceUrlTemplate(provider.server.url)) {
+    if (provider.server.url !== undefined) {
       ctx.addIssue({
         code: 'custom',
         path: ['server', 'url'],
-        message: '带 instance 时 server.url 必须是以 {instance} 开头的模板，例如 {instance}/api/v4/mcp',
+        message: '带 instance 时不要设置 server.url，完整地址由用户填写',
       })
     }
     return
   }
-  if (!isHttpsUrl(provider.server.url)) {
+  if (provider.server.url === undefined || !isHttpsUrl(provider.server.url)) {
     ctx.addIssue({
       code: 'custom',
       path: ['server', 'url'],

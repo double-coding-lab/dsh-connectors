@@ -31,6 +31,7 @@ export interface ProviderInstance {
   label: string
   placeholder?: string
   hint?: string
+  help?: AuthHelp
 }
 
 export interface ConnectorCard {
@@ -139,3 +140,82 @@ export interface HealthPayload {
 }
 
 export const ROUTE_PREFIX = '/dsh-connectors'
+
+export type CliConnectorId = 'dingtalk' | 'feishu'
+
+export type CliPhase = 'idle' | 'installing' | 'configuring' | 'logging_in' | 'error'
+
+export interface CliCapabilityItem {
+  id: string
+  name: string
+  description?: string
+  count?: number
+}
+
+export interface CliCapabilitiesView {
+  kind: 'products' | 'skills'
+  total: number
+  items: CliCapabilityItem[]
+}
+
+export interface CliConnectorView {
+  id: CliConnectorId
+  name: string
+  vendor: string
+  description: string
+  category: string
+  docsUrl: string
+  examples: string[]
+  installHint: string[]
+  installed: boolean
+  enabled: boolean
+  version?: string
+  authenticated: boolean
+  account?: {
+    name?: string
+    email?: string
+    org?: string
+  }
+  skills: {
+    installed: boolean
+    count: number
+    names: string[]
+    dir?: string
+  }
+  capabilities?: CliCapabilitiesView
+  phase: CliPhase
+  stage?: string
+  link?: string
+  code?: string
+  output?: string
+  lastError?: string
+  updatedAt?: number
+}
+
+export interface CliListPayload {
+  ok: true
+  value: {
+    connectors: CliConnectorView[]
+  }
+}
+
+export interface CliConnectorPayload {
+  ok: true
+  value: {
+    connector: CliConnectorView
+  }
+}
+
+export interface CliActionPayload {
+  ok: true
+  value: {
+    connector: CliConnectorView
+  }
+}
+
+export interface CliLogPayload {
+  ok: true
+  value: {
+    output: string
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "tencent-yuanbao-search",
+  "name": "腾讯元宝搜索",
+  "vendor": "腾讯云",
+  "category": "知识检索",
+  "summary": "联网搜索，返回与查询相关的网页内容。",
+  "description": "腾讯云联网搜索 MCP 服务，适合查询最新资讯、技术资料与网页来源。",
+  "examples": [
+    "搜索最近关于某个主题的网页",
+    "查一个技术问题的最新资料",
+    "汇总某个新闻事件的来源",
+    "对比两个产品的官方介绍"
+  ],
+  "tags": ["联网搜索", "网页", "资讯"],
+  "order": 68,
+  "server": {
+    "serverName": "tencent-yuanbao-search",
+    "transport": "streamable-http",
+    "url": "https://api.wsa.cloud.tencent.com/Mcp"
+  },
+  "auth": {
+    "type": "bearer",
+    "label": "腾讯云 WSA API Key",
+    "help": {
+      "url": "https://cloud.tencent.com/developer/mcp/server/11764",
+      "label": "查看腾讯云 MCP 说明",
+      "hint": "在腾讯云 MCP 广场对应服务中获取 API Key；令牌只保存在本机。"
+    }
+  }
+}

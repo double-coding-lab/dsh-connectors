@@ -155,8 +155,20 @@ const instanceCard = {
   tags: [],
   published: true,
   auth: { type: 'oauth2', registration: 'dcr', scopes: ['mcp'] },
-  server: { serverName: 'gitlab', transport: 'streamable-http', url: '{instance}/api/v4/mcp' },
-  instance: { label: '实例地址' },
+  server: { serverName: 'gitlab', transport: 'streamable-http' },
+  instance: { label: '服务地址' },
+}
+
+const noneInstanceCard = {
+  id: 'feishu-test',
+  name: 'Feishu',
+  category: '办公协作',
+  summary: '',
+  tags: [],
+  published: true,
+  auth: { type: 'none' },
+  server: { serverName: 'feishu', transport: 'streamable-http' },
+  instance: { label: '服务地址' },
 }
 
 function baseInstanceRecord() {
@@ -180,7 +192,7 @@ function baseInstanceRecord() {
   }
 }
 
-function makeInstanceService(record) {
+function makeInstanceService(record, card = instanceCard) {
   const tables = new Map()
   const tableFor = name => {
     if (!tables.has(name)) {
@@ -209,13 +221,13 @@ function makeInstanceService(record) {
     storageDomain: {
       open: async () => ({ table: tableFor, close: async () => {} }),
     },
-  }, () => [instanceCard])
-  tableFor('connections').put(record.key, record)
+  }, () => [card])
+  if (record !== null) tableFor('connections').put(record.key, record)
   return { service, removed, table: tableFor('connections') }
 }
 
 const changed = makeInstanceService(baseInstanceRecord())
-const changedView = await changed.service.reconfigureInstance('gitlab-self-hosted', 'https://new.example.com')
+const changedView = await changed.service.reconfigureInstance('gitlab-self-hosted', 'https://new.example.com/api/v4/mcp')
 assert.equal(changedView.instanceReady, true)
 assert.equal(changedView.authorized, false)
 assert.equal(changed.table.get('gitlab-self-hosted')?.url, 'https://new.example.com/api/v4/mcp')
@@ -224,7 +236,7 @@ assert.equal(changed.table.get('gitlab-self-hosted')?.createdAt, 1)
 assert.deepEqual(changed.removed, ['dsh-connectors-gitlab-self-hosted'])
 
 const same = makeInstanceService(baseInstanceRecord())
-const sameView = await same.service.reconfigureInstance('gitlab-self-hosted', 'https://old.example.com')
+const sameView = await same.service.reconfigureInstance('gitlab-self-hosted', 'https://old.example.com/api/v4/mcp')
 assert.equal(sameView.authorized, true)
 assert.ok(same.table.get('gitlab-self-hosted')?.oauth !== undefined)
 assert.equal(same.removed.length, 0)
@@ -236,6 +248,21 @@ await assert.rejects(
 )
 assert.equal(invalid.table.get('gitlab-self-hosted')?.url, 'https://old.example.com/api/v4/mcp')
 assert.ok(invalid.table.get('gitlab-self-hosted')?.oauth !== undefined)
+
+const noUrl = makeInstanceService(null, noneInstanceCard)
+const installedView = await noUrl.service.connect('feishu-test')
+assert.equal(installedView.authorized, false)
+assert.equal(installedView.instanceReady, false)
+assert.equal(noUrl.table.get('feishu-test')?.url, undefined)
+
+const configuredNone = await noUrl.service.reconfigureInstance(
+  'feishu-test',
+  'https://mcp.feishu.cn/mcp?token=test-token',
+)
+assert.equal(configuredNone.authorized, true)
+assert.equal(configuredNone.instanceReady, true)
+assert.equal(noUrl.table.get('feishu-test')?.url, 'https://mcp.feishu.cn/mcp?token=test-token')
+assert.equal(noUrl.table.get('feishu-test')?.auth, undefined)
 
 function makeCustomService() {
   const tables = new Map()

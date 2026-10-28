@@ -7,7 +7,7 @@ npm run providers:icons   # 重新生成 src/client/provider-icons.generated.ts
 npm run check             # 类型检查 + 构建 + provider 校验
 ```
 
-当前内置 18 个：
+当前内置 22 个：
 
 | id | auth | 分类 |
 | --- | --- | --- |
@@ -29,5 +29,11 @@ npm run check             # 类型检查 + 构建 + provider 校验
 | circleci | oauth2 | 开发工具 |
 | sentry | oauth2 | 安全运维 |
 | notion | oauth2 | 办公协作 |
+| yunxiao | oauth2 | 开发工具 |
+| gitee | bearer | 开发工具 |
+| tencent-yuanbao-search | bearer | 知识检索 |
+| amap | none（instance） | 知识检索 |
+
+钉钉、飞书不在内置 MCP 目录：官方推荐使用 CLI + Skills（`dws` / `lark-cli`），不走远程 MCP；有真实 MCP 地址的场景请用自定义连接器导入。
 
 新增或修改 provider 的完整规则见 [CONTRIBUTING.md](../CONTRIBUTING.md)。

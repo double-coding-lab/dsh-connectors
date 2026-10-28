@@ -66,7 +66,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["label"],
-      "description": "需要用户填写实例地址的 provider；存在时 server.url 必须使用 {instance} 模板。",
+      "description": "需要用户填写完整 MCP 服务地址的 provider；存在时 server.url 不应设置，地址由用户填写。",
       "properties": {
         "label": {
           "type": "string",
@@ -79,13 +79,16 @@
         "hint": {
           "type": "string",
           "minLength": 1
+        },
+        "help": {
+          "$ref": "#/$defs/help"
         }
       }
     },
     "server": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["transport", "url"],
+      "required": ["transport"],
       "properties": {
         "serverName": {
           "type": "string",
@@ -99,7 +102,7 @@
         "url": {
           "type": "string",
           "minLength": 1,
-          "description": "无 instance 时必须是 https 地址；有 instance 时必须是以 {instance} 开头的模板，例如 {instance}/api/v4/mcp。"
+          "description": "不带 instance 时必须是 https 地址；带 instance 时不要设置，完整地址由用户填写。"
         }
       }
     },
@@ -212,10 +215,8 @@
       "then": {
         "properties": {
           "server": {
-            "properties": {
-              "url": {
-                "pattern": "^\\{instance\\}(/.*)?$"
-              }
+            "not": {
+              "required": ["url"]
             }
           }
         }
@@ -223,6 +224,7 @@
       "else": {
         "properties": {
           "server": {
+            "required": ["url"],
             "properties": {
               "url": {
                 "pattern": "^https://"
