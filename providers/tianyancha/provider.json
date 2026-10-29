@@ -1,0 +1,34 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "tianyancha",
+  "name": "天眼查",
+  "vendor": "天眼查",
+  "category": "数据分析",
+  "summary": "查企业工商、股权、司法与知识产权信息。",
+  "description": "天眼查官方 MCP 服务：按公司名或统一社会信用代码查询工商登记、股东与股权穿透、司法涉诉、知识产权、经营与招投标信息。",
+  "examples": [
+    "查一下「某某科技有限公司」的工商信息和主要股东",
+    "把这家公司的对外投资和股权穿透整理成表",
+    "看这家公司近三年的司法涉诉和被执行记录",
+    "对比两家同行的注册资本、参保人数和专利数量"
+  ],
+  "tags": ["企业查询", "工商", "司法风险"],
+  "order": 83,
+  "server": {
+    "serverName": "tianyancha",
+    "transport": "streamable-http",
+    "url": "https://mcp.tianyancha.com/mcp"
+  },
+  "auth": {
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "scopes": ["mcp:tools.call"],
+    "help": {
+      "url": "https://ai.tianyancha.com/guide",
+      "label": "查看天眼查 MCP 接入说明",
+      "hint": "授权使用你开放平台账号的额度，按接口计费；需先在开放平台开通用量。"
+    }
+  }
+}

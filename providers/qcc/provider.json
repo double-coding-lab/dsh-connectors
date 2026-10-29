@@ -1,0 +1,50 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "qcc",
+  "name": "企查查",
+  "vendor": "企查查",
+  "category": "数据分析",
+  "summary": "查企业工商、风险、知识产权与招投标。",
+  "description": "企查查智能体数据平台官方 MCP：按数据域接入工商信息、风险、知识产权、经营、历史、人员、法规、裁判文书、招投标与文档解析。每次连一个域，需要时再切换。",
+  "examples": [
+    "查「某某科技有限公司」的工商登记和股东信息",
+    "这家公司的司法风险和被执行记录有哪些",
+    "统计这家公司名下的专利和商标",
+    "查一下这个项目的中标记录和招标方"
+  ],
+  "tags": ["企业查询", "风险", "知识产权"],
+  "order": 84,
+  "server": {
+    "serverName": "qcc",
+    "transport": "streamable-http"
+  },
+  "instance": {
+    "label": "数据域",
+    "noun": "数据域",
+    "hint": "每个数据域是独立的 MCP 服务，切换后会断开当前连接并需要重新连接。",
+    "presets": [
+      { "label": "工商信息", "url": "https://agent.qcc.com/mcp/company/stream" },
+      { "label": "风险信息", "url": "https://agent.qcc.com/mcp/risk/stream" },
+      { "label": "知识产权", "url": "https://agent.qcc.com/mcp/ipr/stream" },
+      { "label": "经营信息", "url": "https://agent.qcc.com/mcp/operation/stream" },
+      { "label": "历史信息", "url": "https://agent.qcc.com/mcp/history/stream" },
+      { "label": "人员信息", "url": "https://agent.qcc.com/mcp/executive/stream" },
+      { "label": "法规检索", "url": "https://agent.qcc.com/mcp/regulation/stream" },
+      { "label": "裁判文书", "url": "https://agent.qcc.com/mcp/case/stream" },
+      { "label": "招投标", "url": "https://agent.qcc.com/mcp/tender/stream" },
+      { "label": "文档解析", "url": "https://agent.qcc.com/mcp/document/stream" }
+    ]
+  },
+  "auth": {
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "scopes": ["mcp:tools"],
+    "help": {
+      "url": "https://agent.qcc.com/guide",
+      "label": "查看企查查 MCP 接入说明",
+      "hint": "授权后在浏览器登录企查查账号即可；调用按账号积分计费，需先在平台充值。"
+    }
+  }
+}

@@ -18,9 +18,15 @@ const helpSchema = z.object({
 
 const instanceSchema = z.object({
   label: z.string().min(1),
+  noun: z.string().min(1).optional(),
   placeholder: z.string().min(1).optional(),
   hint: z.string().min(1).optional(),
   help: helpSchema.optional(),
+  presets: z.array(z.object({
+    label: z.string().min(1),
+    url: httpsUrl,
+    hint: z.string().min(1).optional(),
+  }).strict()).min(1).optional(),
 }).strict()
 
 export function isHttpsUrl(value: string): boolean {

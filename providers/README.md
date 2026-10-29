@@ -7,14 +7,14 @@ npm run providers:icons   # 重新生成 src/client/provider-icons.generated.ts
 npm run check             # 类型检查 + 构建 + provider 校验
 ```
 
-当前内置 22 个：
+当前内置 25 个：
 
 | id | auth | 分类 |
 | --- | --- | --- |
 | github | bearer | 开发工具 |
-| linear | bearer | 项目管理 |
-| neon | bearer | 数据库 |
-| supabase | bearer | 数据库 |
+| linear | oauth2（DCR） | 项目管理 |
+| neon | oauth2（DCR） | 数据库 |
+| supabase | oauth2（DCR） | 数据库 |
 | gitlab | oauth2 | 开发工具 |
 | gitlab-self-hosted | oauth2（instance） | 开发工具 |
 | context7 | none | 知识检索 |
@@ -22,7 +22,7 @@ npm run check             # 类型检查 + 构建 + provider 校验
 | deepwiki | none | 知识检索 |
 | cloudflare-docs | none | 开发工具 |
 | hugging-face | bearer | 知识检索 |
-| posthog | bearer | 数据分析 |
+| posthog | oauth2（DCR，无 scope） | 数据分析 |
 | grafana | bearer | 安全运维 |
 | postman | oauth2 | 开发工具 |
 | sourcegraph | bearer | 开发工具 |
@@ -33,7 +33,10 @@ npm run check             # 类型检查 + 构建 + provider 校验
 | gitee | bearer | 开发工具 |
 | tencent-yuanbao-search | bearer | 知识检索 |
 | amap | none（instance） | 知识检索 |
+| tencent-docs | oauth2（DCR） | 办公协作 |
+| tianyancha | oauth2（DCR） | 数据分析 |
+| qcc | oauth2（DCR，instance 预置 10 个数据域） | 数据分析 |
 
-钉钉、飞书不在内置 MCP 目录：官方推荐使用 CLI + Skills（`dws` / `lark-cli`），不走远程 MCP；有真实 MCP 地址的场景请用自定义连接器导入。
+钉钉、飞书、腾讯会议、企业微信不在内置 MCP 目录：官方推荐使用 CLI + Skills（`dws` / `lark-cli` / `tmeet` / `wecom-cli`），不走远程 MCP；有真实 MCP 地址的场景请用自定义连接器导入。
 
 新增或修改 provider 的完整规则见 [CONTRIBUTING.md](../CONTRIBUTING.md)。

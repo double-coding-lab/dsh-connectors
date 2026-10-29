@@ -43,8 +43,9 @@
     "test:cli": "node scripts/test-cli-adapters.mjs && node scripts/test-cli-service.mjs",
     "build": "node scripts/build-provider-icons.mjs && node scripts/build-cli-icons.mjs && tsc -p tsconfig.build.json && node scripts/build-client.mjs",
     "typecheck": "node scripts/build-provider-icons.mjs && node scripts/build-cli-icons.mjs && tsc --noEmit && tsc -p tsconfig.client.json",
-    "check": "npm run typecheck && npm run build && npm run providers:check && npm run test:instance && npm run test:provider-schema && npm run test:custom && npm run test:cli",
-    "link:web": "npm run build && dsh plugin --profile web add link:."
+    "check": "npm run typecheck && npm run build && npm run providers:check && npm run test:instance && npm run test:provider-schema && npm run test:oauth && npm run test:custom && npm run test:cli",
+    "link:web": "npm run build && dsh plugin --profile web add link:.",
+    "test:oauth": "node scripts/test-oauth-discovery.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",

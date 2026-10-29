@@ -1,7 +1,7 @@
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 
 import type { CardAuth, ConnectorCard, ConnectionView, CustomConfigView, ToolInfo } from '../shared/types.js'
-import { MAX_EXAMPLES, resolveCategory, validateCategory } from '../shared/categories.js'
+import { BUILTIN_CATEGORIES, MAX_EXAMPLES, resolveCategory, validateCategory } from '../shared/categories.js'
 import { CUSTOM_SECRET_PLACEHOLDER } from '../shared/customConfig.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
 import { ConnectError } from './errors.js'
@@ -285,7 +285,27 @@ export class ConnectionService {
     const custom = [...customTable.entries()]
       .sort(([, left], [, right]) => left.createdAt - right.createdAt)
       .map(([, record]) => this.customCard(record))
-    return [...this.catalog(), ...custom]
+
+    // 全部 Tab 按分类块连续排列：分类顺序沿用 Tab 顺序，组内保持 provider order，自定义接在同分类内置之后
+    const buckets = new Map<string, ConnectorCard[]>()
+    const labels: string[] = []
+    for (const card of [...this.catalog(), ...custom]) {
+      const bucket = buckets.get(card.category)
+      if (bucket === undefined) {
+        buckets.set(card.category, [card])
+        labels.push(card.category)
+      } else {
+        bucket.push(card)
+      }
+    }
+    const rank = new Map<string, number>(BUILTIN_CATEGORIES.map((category, index) => [category, index]))
+    const fallback = BUILTIN_CATEGORIES.length
+    labels.sort((left, right) => {
+      const leftRank = rank.get(left) ?? fallback
+      const rightRank = rank.get(right) ?? fallback
+      return leftRank - rightRank || left.localeCompare(right, 'zh-CN')
+    })
+    return labels.flatMap(label => buckets.get(label) ?? [])
   }
 
   async restore(): Promise<void> {
@@ -653,7 +673,7 @@ export class ConnectionService {
     this.oauthMetadata.set(serverUrl, { metadata: baseMetadata, at: Date.now() })
 
     const auth = card.auth
-    const scope = auth.scopes !== undefined && auth.scopes.length > 0
+    const scope = auth.scopes !== undefined
       ? auth.scopes.join(' ')
       : baseMetadata.scope
     const metadata: OAuthMetadata = { ...baseMetadata, scope }
@@ -767,6 +787,7 @@ export class ConnectionService {
       clientId: pending.client.clientId,
       ...(pending.client.clientSecret === undefined ? {} : { clientSecret: pending.client.clientSecret }),
       verifier: pending.verifier,
+      ...(pending.metadata.resource === undefined ? {} : { resource: pending.metadata.resource }),
     })
 
     const table = await this.table()
@@ -792,6 +813,7 @@ export class ConnectionService {
         ...(tokens.refreshToken === undefined ? {} : { refreshToken: tokens.refreshToken }),
         ...(tokens.expiresAt === undefined ? {} : { expiresAt: tokens.expiresAt }),
         scope: tokens.scope ?? pending.metadata.scope,
+        ...(pending.metadata.resource === undefined ? {} : { resource: pending.metadata.resource }),
       },
       enabled: true,
       createdAt: previous?.createdAt ?? now,
@@ -833,6 +855,7 @@ export class ConnectionService {
       refreshToken: oauth.refreshToken,
       clientId: oauth.clientId,
       ...(oauth.clientSecret === undefined ? {} : { clientSecret: oauth.clientSecret }),
+      ...(oauth.resource === undefined ? {} : { resource: oauth.resource }),
     })
     return {
       ...record,

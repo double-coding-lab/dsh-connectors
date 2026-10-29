@@ -9,6 +9,8 @@ export interface OAuthMetadata {
   tokenEndpoint: string
   registrationEndpoint?: string
   scope: string
+  /** RFC 8707 资源标识；部分服务（如天眼查）会校验它必须等于 MCP 端点 */
+  resource?: string
 }
 
 export interface OAuthClient {
@@ -63,11 +65,55 @@ function asStringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
+// 401 的 WWW-Authenticate 里可能直接给出 resource_metadata 地址（RFC 9728），优先用它
+async function advertisedResourceMetadata(resource: string): Promise<string | undefined> {
+  try {
+    const response = await fetch(resource, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'dsh-connectors', version: '0.1.0' },
+        },
+      }),
+      signal: AbortSignal.timeout(5_000),
+    })
+    const header = response.headers.get('www-authenticate') ?? ''
+    return /resource_metadata="([^"]+)"/i.exec(header)?.[1]
+  } catch {
+    return undefined
+  }
+}
+
+// 两种 well-known 拼法都要兼容：{origin}/.well-known/...{path} 与 {resource}/.well-known/...
+async function fetchResourceMetadata(resource: string): Promise<Record<string, unknown>> {
+  const resourceUrl = new URL(resource)
+  const candidates: string[] = []
+  const advertised = await advertisedResourceMetadata(resource)
+  if (advertised !== undefined) candidates.push(advertised)
+  const suffix = `${resourceUrl.origin}/.well-known/oauth-protected-resource${resourceUrl.pathname}`
+  candidates.push(suffix.replace(/\/$/, ''))
+  candidates.push(`${resource.replace(/\/+$/, '')}/.well-known/oauth-protected-resource`)
+
+  let firstError: unknown
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      return await getJson(candidate)
+    } catch (error) {
+      firstError ??= error
+    }
+  }
+  throw firstError
+}
+
 export async function fetchOAuthMetadata(resource: string): Promise<OAuthMetadata> {
   const resourceUrl = new URL(resource)
-  const resourceMetadata = await getJson(
-    `${resourceUrl.origin}/.well-known/oauth-protected-resource${resourceUrl.pathname}`,
-  )
+  const resourceMetadata = await fetchResourceMetadata(resource)
   const issuer = asStringList(resourceMetadata.authorization_servers)[0] ?? resourceUrl.origin
   const serverMetadata = await getJson(`${issuer.replace(/\/+$/, '')}/.well-known/oauth-authorization-server`)
 
@@ -89,6 +135,7 @@ export async function fetchOAuthMetadata(resource: string): Promise<OAuthMetadat
       ? {}
       : { registrationEndpoint: asString(serverMetadata.registration_endpoint) }),
     scope,
+    resource: asString(resourceMetadata.resource) ?? resource,
   }
 }
 
@@ -109,7 +156,7 @@ export async function registerOAuthClient(
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
-      scope: metadata.scope,
+      ...(metadata.scope === '' ? {} : { scope: metadata.scope }),
     }),
   })
   const clientId = asString(body.client_id)
@@ -139,9 +186,10 @@ export function buildAuthorizeUrl(
   url.searchParams.set('redirect_uri', options.redirectUri)
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('state', options.state)
-  url.searchParams.set('scope', metadata.scope)
+  if (metadata.scope !== '') url.searchParams.set('scope', metadata.scope)
   url.searchParams.set('code_challenge', options.challenge)
   url.searchParams.set('code_challenge_method', 'S256')
+  if (metadata.resource !== undefined) url.searchParams.set('resource', metadata.resource)
   return url.toString()
 }
 
@@ -159,7 +207,14 @@ function parseTokens(body: Record<string, unknown>): OAuthTokens {
 
 export async function exchangeCode(
   tokenEndpoint: string,
-  options: { code: string; redirectUri: string; clientId: string; clientSecret?: string; verifier: string },
+  options: {
+    code: string
+    redirectUri: string
+    clientId: string
+    clientSecret?: string
+    verifier: string
+    resource?: string
+  },
 ): Promise<OAuthTokens> {
   const params = new URLSearchParams({
     grant_type: 'authorization_code',
@@ -169,6 +224,7 @@ export async function exchangeCode(
     code_verifier: options.verifier,
   })
   if (options.clientSecret !== undefined) params.set('client_secret', options.clientSecret)
+  if (options.resource !== undefined) params.set('resource', options.resource)
   const body = await getJson(tokenEndpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -179,7 +235,7 @@ export async function exchangeCode(
 
 export async function refreshAccessToken(
   tokenEndpoint: string,
-  options: { refreshToken: string; clientId: string; clientSecret?: string },
+  options: { refreshToken: string; clientId: string; clientSecret?: string; resource?: string },
 ): Promise<OAuthTokens> {
   const params = new URLSearchParams({
     grant_type: 'refresh_token',
@@ -187,6 +243,7 @@ export async function refreshAccessToken(
     client_id: options.clientId,
   })
   if (options.clientSecret !== undefined) params.set('client_secret', options.clientSecret)
+  if (options.resource !== undefined) params.set('resource', options.resource)
   const body = await getJson(tokenEndpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },

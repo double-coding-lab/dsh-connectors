@@ -19,6 +19,7 @@ const oauthSchema = z.object({
   refreshToken: z.string().optional(),
   expiresAt: z.number().optional(),
   scope: z.string().optional(),
+  resource: z.string().url().optional(),
 })
 
 export const connectionRecordSchema = z.object({

@@ -13,7 +13,11 @@
     "查一个实验的转化结果",
     "总结最近的高频错误事件"
   ],
-  "tags": ["产品分析", "事件", "实验"],
+  "tags": [
+    "产品分析",
+    "事件",
+    "实验"
+  ],
   "order": 82,
   "server": {
     "serverName": "posthog",
@@ -21,12 +25,14 @@
     "url": "https://mcp.posthog.com/mcp"
   },
   "auth": {
-    "type": "bearer",
-    "label": "PostHog Personal API Key",
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "scopes": [],
     "help": {
-      "url": "https://us.posthog.com/settings/user-api-keys",
-      "label": "创建 PostHog API Key",
-      "hint": "EU 区域请使用 eu.posthog.com 的设置页；令牌只保存在本机。"
+      "url": "https://posthog.com/docs/model-context-protocol",
+      "label": "查看 PostHog MCP 说明",
+      "hint": "PostHog 的自助注册客户端不接受指定 scope，授权时由服务端决定；令牌只保存在本机。"
     }
   }
 }

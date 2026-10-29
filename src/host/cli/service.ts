@@ -9,6 +9,7 @@ import { ConnectError } from '../errors.js'
 import { openExternal } from '../openExternal.js'
 import { defineCliDomain, type CliConnectorRecord } from '../store.js'
 import { getAdapter, listAdapters, type CliAdapter } from './adapters.js'
+import { compareVersions } from './version.js'
 import { defaultExec, redactOutput, resolveBinary, spawnStreaming, type ExecFn } from './exec.js'
 
 const VERSION_TIMEOUT_MS = 10_000
@@ -30,7 +31,7 @@ export interface CliServiceContext {
 
 interface CliJob {
   connectorId: CliConnectorId
-  kind: 'install' | 'login' | 'uninstall'
+  kind: 'install' | 'update' | 'login' | 'uninstall'
   phase: CliPhase
   stage: string
   link?: string
@@ -348,6 +349,10 @@ export class CliConnectorService {
       ...(parsed.account === undefined ? {} : { account: parsed.account }),
       skills,
       ...(capabilities === undefined ? {} : { capabilities }),
+      ...(adapter.minVersion === undefined ? {} : { minVersion: adapter.minVersion }),
+      ...(adapter.minVersion !== undefined && version !== undefined && compareVersions(version, adapter.minVersion) < 0
+        ? { versionOutdated: true }
+        : {}),
       phase: error === undefined ? 'idle' : 'error',
       ...(error === undefined ? {} : { lastError: error }),
       updatedAt: Date.now(),
@@ -399,13 +404,72 @@ export class CliConnectorService {
       } catch (error) {
         job.error = error instanceof Error ? error.message : String(error)
         job.phase = 'error'
-        return
       } finally {
         job.done = true
       }
       if (job.cancel) return
       this.capabilityCache.delete(adapter.id)
-      await this.refresh(adapter.id).catch(() => undefined)
+      const settledView = await this.refresh(adapter.id).catch(() => undefined)
+      // CLI 与 Skills 都就绪时，失败只发生在中途某一步，不保留红色错误
+      if (job.error !== undefined && settledView !== undefined && settledView.installed && settledView.skills.installed) {
+        job.error = undefined
+        job.phase = 'idle'
+      }
+      job.settled = true
+    })()
+    return this.view(adapter.id)
+  }
+
+  async startUpdate(id: string): Promise<CliConnectorView> {
+    const adapter = getAdapter(id)
+    if (adapter === undefined) throw new ConnectError('not_found', '未知的 CLI 连接器')
+    this.assertIdle(adapter.id)
+    const current = await this.view(adapter.id)
+    if (!current.installed) throw new ConnectError('cli_not_installed', '请先安装 CLI')
+    const job: CliJob = {
+      connectorId: adapter.id,
+      kind: 'update',
+      phase: 'updating',
+      stage: '更新 CLI',
+      output: '',
+      cancel: false,
+      done: false,
+      settled: false,
+    }
+    this.jobs.set(adapter.id, job)
+    void (async () => {
+      const env = commandEnv(adapter)
+      try {
+        for (const step of adapter.install) {
+          if (job.cancel) return
+          job.stage = step.label
+          const handle = spawnStreaming(step.command, step.args, {
+            timeoutMs: INSTALL_TIMEOUT_MS,
+            onOutput: chunk => {
+              job.output = trimOutput(job.output, chunk.text)
+            },
+            ...(env === undefined ? {} : { env }),
+          })
+          job.child = handle.child
+          const result = await handle.done
+          if (job.cancel) return
+          if (result.code !== 0) {
+            throw new Error(`${step.label}失败：${redactOutput(result.stderr || result.stdout).trim().slice(0, 300) || `退出码 ${String(result.code)}`}`)
+          }
+        }
+      } catch (error) {
+        job.error = error instanceof Error ? error.message : String(error)
+        job.phase = 'error'
+      } finally {
+        job.done = true
+      }
+      if (job.cancel) return
+      this.capabilityCache.delete(adapter.id)
+      const settledView = await this.refresh(adapter.id).catch(() => undefined)
+      if (job.error !== undefined && settledView !== undefined && settledView.installed && settledView.skills.installed) {
+        job.error = undefined
+        job.phase = 'idle'
+      }
       job.settled = true
     })()
     return this.view(adapter.id)
@@ -502,17 +566,32 @@ export class CliConnectorService {
     const adapter = getAdapter(id)
     if (adapter === undefined) throw new ConnectError('not_found', '未知的 CLI 连接器')
     this.assertIdle(adapter.id)
-    const binPath = await resolveBinary(adapter.bin, this.exec)
-    if (binPath === null) throw new ConnectError('cli_not_installed', 'CLI 可执行文件未找到')
-    const env = commandEnv(adapter)
-    const result = await this.exec(binPath, adapter.auth.logout.args, {
-      timeoutMs: STATUS_TIMEOUT_MS,
-      acceptFailure: true,
-      ...(env === undefined ? {} : { env }),
-    })
-    if (result.code !== 0) throw new ConnectError('cli_logout_failed', this.tail(result.stderr || result.stdout))
+    const logout = adapter.auth.logout
+    if (logout !== undefined) {
+      const binPath = await resolveBinary(adapter.bin, this.exec)
+      if (binPath === null) throw new ConnectError('cli_not_installed', 'CLI 可执行文件未找到')
+      const env = commandEnv(adapter)
+      const result = await this.exec(binPath, logout.args, {
+        timeoutMs: STATUS_TIMEOUT_MS,
+        acceptFailure: true,
+        ...(env === undefined ? {} : { env }),
+      })
+      if (result.code !== 0) throw new ConnectError('cli_logout_failed', this.tail(result.stderr || result.stdout))
+    } else if (adapter.logoutFiles !== undefined) {
+      this.clearCredentials(adapter)
+    } else {
+      throw new ConnectError('cli_logout_unsupported', '该 CLI 不支持解绑')
+    }
     this.jobs.delete(adapter.id)
     return this.refresh(adapter.id)
+  }
+
+  private clearCredentials(adapter: CliAdapter): void {
+    const spec = adapter.logoutFiles
+    if (spec === undefined) return
+    const override = spec.envDir === undefined ? undefined : process.env[spec.envDir]
+    const dir = override !== undefined && override !== '' ? override : spec.dir.replace(/^~/, homedir())
+    for (const file of spec.files) rmSync(join(dir, file), { force: true })
   }
 
   async startUninstall(id: string): Promise<CliConnectorView> {
@@ -536,11 +615,16 @@ export class CliConnectorService {
         if (binPath !== null) {
           job.stage = '退出登录'
           const env = commandEnv(adapter)
-          await this.exec(binPath, adapter.auth.logout.args, {
-            timeoutMs: STATUS_TIMEOUT_MS,
-            acceptFailure: true,
-            ...(env === undefined ? {} : { env }),
-          }).catch(() => undefined)
+          const logout = adapter.auth.logout
+          if (logout !== undefined) {
+            await this.exec(binPath, logout.args, {
+              timeoutMs: STATUS_TIMEOUT_MS,
+              acceptFailure: true,
+              ...(env === undefined ? {} : { env }),
+            }).catch(() => undefined)
+          } else {
+            this.clearCredentials(adapter)
+          }
           if (job.cancel) return
           for (const step of adapter.uninstall) {
             if (job.cancel) return
@@ -578,6 +662,7 @@ export class CliConnectorService {
       try {
         job.stage = '删除 Skills'
         this.removeSkills(adapter)
+        this.clearCredentials(adapter)
         this.capabilityCache.delete(adapter.id)
         this.cache.delete(adapter.id)
         const table = await this.table()
@@ -613,6 +698,6 @@ export class CliConnectorService {
 
   private assertIdle(id: string): void {
     const job = this.jobs.get(id)
-    if (job !== undefined && !job.done) throw new ConnectError('cli_busy', '当前连接器正在安装、登录或卸载，请稍候')
+    if (job !== undefined && !job.done) throw new ConnectError('cli_busy', '当前连接器正在安装、更新、登录或卸载，请稍候')
   }
 }

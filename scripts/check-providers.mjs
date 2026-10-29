@@ -25,7 +25,12 @@ if (issues.length > 0) {
 
 for (const card of cards) {
   const icon = ['svg', 'png', 'webp'].some(ext => existsSync(join(providersDir, card.id, `icon.${ext}`)))
-  console.log(`✓ ${card.id.padEnd(12)} ${card.auth.type.padEnd(7)} ${card.server.transport}  ${card.instance !== undefined ? '用户填写地址' : card.server.url}${icon ? '' : '  (无图标，使用字母兜底)'}`)
+  const target = card.instance === undefined
+    ? card.server.url
+    : card.instance.presets === undefined
+      ? '用户填写地址'
+      : `预置 ${card.instance.presets.length} 项（${card.instance.presets.map(item => item.label).join(' / ')}）`
+  console.log(`✓ ${card.id.padEnd(12)} ${card.auth.type.padEnd(7)} ${card.server.transport}  ${target}${icon ? '' : '  (无图标，使用字母兜底)'}`)
 }
 
 console.log(`\nprovider 校验通过：${cards.length} 个`)

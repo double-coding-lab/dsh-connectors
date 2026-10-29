@@ -487,7 +487,7 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
       }
 
       const cliAction = req.method === 'POST'
-        ? new RegExp(`^${ROUTE_PREFIX}/api/cli/([^/]+)/(install|login|logout|cancel|uninstall)$`).exec(path)
+        ? new RegExp(`^${ROUTE_PREFIX}/api/cli/([^/]+)/(install|update|login|logout|cancel|uninstall)$`).exec(path)
         : undefined
       if (cliAction !== null && cliAction !== undefined) {
         const rawId = cliAction[1]
@@ -498,6 +498,10 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
         const id = decodeURIComponent(rawId)
         if (action === 'install') {
           json(res, 200, { ok: true, value: { connector: await options.cli.startInstall(id) } })
+          return
+        }
+        if (action === 'update') {
+          json(res, 200, { ok: true, value: { connector: await options.cli.startUpdate(id) } })
           return
         }
         if (action === 'login') {

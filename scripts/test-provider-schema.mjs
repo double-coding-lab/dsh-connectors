@@ -78,4 +78,32 @@ const instanceHelpHttp = {
 }
 assert.equal(providerDefinitionSchema.safeParse(instanceHelpHttp).success, false, 'instance help with http should fail')
 
-console.log('provider schema instance tests: 9 passed')
+const instancePresets = {
+  ...instanceNone,
+  instance: {
+    label: '数据域',
+    noun: '数据域',
+    presets: [
+      { label: '工商信息', url: 'https://example.com/mcp/company/stream' },
+      { label: '风险信息', url: 'https://example.com/mcp/risk/stream', hint: '含司法与经营风险' },
+    ],
+  },
+}
+assert.equal(providerDefinitionSchema.safeParse(instancePresets).success, true, 'instance presets with https should pass')
+
+const instancePresetHttp = {
+  ...instancePresets,
+  instance: {
+    ...instancePresets.instance,
+    presets: [{ label: '工商信息', url: 'http://example.com/mcp/company/stream' }],
+  },
+}
+assert.equal(providerDefinitionSchema.safeParse(instancePresetHttp).success, false, 'instance preset with http should fail')
+
+const instancePresetEmpty = {
+  ...instancePresets,
+  instance: { ...instancePresets.instance, presets: [] },
+}
+assert.equal(providerDefinitionSchema.safeParse(instancePresetEmpty).success, false, 'empty instance presets should fail')
+
+console.log('provider schema instance tests: 12 passed')

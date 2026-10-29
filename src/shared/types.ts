@@ -27,11 +27,19 @@ export interface ServerSpec {
   args?: string[]
 }
 
+export interface ProviderInstancePreset {
+  label: string
+  url: string
+  hint?: string
+}
+
 export interface ProviderInstance {
   label: string
+  noun?: string
   placeholder?: string
   hint?: string
   help?: AuthHelp
+  presets?: ProviderInstancePreset[]
 }
 
 export interface ConnectorCard {
@@ -141,9 +149,9 @@ export interface HealthPayload {
 
 export const ROUTE_PREFIX = '/dsh-connectors'
 
-export type CliConnectorId = 'dingtalk' | 'feishu'
+export type CliConnectorId = 'dingtalk' | 'feishu' | 'tmeet' | 'wecom'
 
-export type CliPhase = 'idle' | 'installing' | 'configuring' | 'logging_in' | 'uninstalling' | 'error'
+export type CliPhase = 'idle' | 'installing' | 'updating' | 'configuring' | 'logging_in' | 'uninstalling' | 'error'
 
 export interface CliCapabilityItem {
   id: string
@@ -153,7 +161,7 @@ export interface CliCapabilityItem {
 }
 
 export interface CliCapabilitiesView {
-  kind: 'products' | 'skills'
+  kind: 'products' | 'skills' | 'groups'
   total: number
   items: CliCapabilityItem[]
 }
@@ -182,6 +190,8 @@ export interface CliConnectorView {
     names: string[]
     dir?: string
   }
+  minVersion?: string
+  versionOutdated?: boolean
   capabilities?: CliCapabilitiesView
   phase: CliPhase
   stage?: string

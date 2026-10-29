@@ -75,6 +75,28 @@ npm run check
 - 带 `instance` 的 provider 加号会先写入一条无 URL 的安装记录，再打开独立地址弹窗；详情只显示提示与「配置」按钮。
 - 已配置地址后 `instanceReady=true`；「更换地址」会断开旧连接、清除旧凭据并更新 URL，需要重新配置或授权。未配置时关闭弹窗仍保持安装，可再次打开继续填写。
 
+### 预置地址（instance.presets）
+
+如果地址是一组固定端点（企查查按数据域拆了 10 个 MCP 服务），用 `presets` 把弹窗从手填改成下拉选择：
+
+```json
+{
+  "instance": {
+    "label": "数据域",
+    "noun": "数据域",
+    "presets": [
+      { "label": "工商信息", "url": "https://example.com/mcp/company/stream" },
+      { "label": "风险信息", "url": "https://example.com/mcp/risk/stream" }
+    ]
+  }
+}
+```
+
+- `presets` 每项必填 `label` / `url`，`url` 必须是 https；数组不能为空。
+- 有 `presets` 时用户只能从列表选择，不再手填地址，也不再显示 http 风险提示。
+- `noun` 只影响界面措辞：卡片和详情的「更换地址」会变成「更换数据域」，详情提示改成「选择数据域」；不填时仍说「地址」。
+- 每个预置仍是一个独立的 MCP 端点，切换后会断开当前连接、清除旧凭据并需要重新连接，界面上要写清这一点。
+
 ## Auth 类型
 
 | type | 适用场景 | 关键字段 |
@@ -89,7 +111,15 @@ OAuth 的 `registration`：
 - `"dcr"`：服务端支持动态客户端注册（优先）。
 - `{ "clientId": "..." }`：厂商提供公开客户端 ID，且不要求 client secret。
 
-当前不支持 device code、mTLS、多字段凭据；这些场景请先用自定义连接器。
+元数据发现由宿主自动完成，provider 只需声明 `registration` 与 `scopes`：
+
+1. 先向 MCP 端点发送一个未授权的 `initialize`，从 401 的 `WWW-Authenticate` 里读取 `resource_metadata` 地址（RFC 9728，优先）；
+2. 没有该头时依次尝试 `{origin}/.well-known/oauth-protected-resource{path}` 与 `{resource}/.well-known/oauth-protected-resource` 两种拼法；
+3. 从资源元数据的 `authorization_servers[0]` 取 issuer，再读 `{issuer}/.well-known/oauth-authorization-server`；
+4. `scopes` 以 provider 声明为准，未声明才用资源元数据的第一个；
+5. 授权请求、换 token 和刷新 token 都会带上资源元数据里的 `resource`（RFC 8707）。天眼查会强校验它必须等于 MCP 端点，其他服务忽略即可。
+
+当前不支持 device code、mTLS、多字段凭据；这些场景请先用自定义连接器。只支持 API Key 的服务用 `bearer` / `header`；同时支持 OAuth 与 API Key 的服务，内置卡片走 OAuth，Key 用法交给自定义连接器的 `headers`。
 
 ## 凭据帮助链接
 

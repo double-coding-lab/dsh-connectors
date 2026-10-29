@@ -217,6 +217,10 @@ function tokenLabel(card: ConnectorCard): string {
   return auth.type === 'bearer' || auth.type === 'header' ? auth.label : '访问令牌'
 }
 
+function instanceNoun(card: ConnectorCard): string {
+  return card.instance?.noun ?? '地址'
+}
+
 function tokenHelp(card: ConnectorCard): { url: string; label: string; hint?: string } | undefined {
   const auth = card.auth
   return auth.type === 'bearer' || auth.type === 'header' ? auth.help : undefined
@@ -1054,6 +1058,7 @@ function ConnectorPopover(): JSX.Element | null {
 
   const renderCliRow = (connector: CliConnectorView): JSX.Element => {
     const busy = connector.phase === 'installing'
+      || connector.phase === 'updating'
       || connector.phase === 'configuring'
       || connector.phase === 'logging_in'
       || connector.phase === 'uninstalling'
@@ -1198,6 +1203,9 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
   const [cliInstallId, setCliInstallId] = useState<string | null>(null)
   const [cliLoginId, setCliLoginId] = useState<string | null>(null)
   const [cliUninstallId, setCliUninstallId] = useState<string | null>(null)
+  const [cliUpdateId, setCliUpdateId] = useState<string | null>(null)
+  const [cliUpdateStarted, setCliUpdateStarted] = useState(false)
+  const [cliUpdateError, setCliUpdateError] = useState<string | null>(null)
   const [cliUninstallPending, setCliUninstallPending] = useState(false)
   const [cliUninstallError, setCliUninstallError] = useState<string | null>(null)
   const [cliBusyId, setCliBusyId] = useState<string | null>(null)
@@ -1415,6 +1423,29 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
     setCliUninstallError(null)
   }
 
+  const startCliUpdate = (connector: CliConnectorView): void => {
+    setCliUpdateStarted(false)
+    setCliUpdateError(null)
+    void (async () => {
+      try {
+        const response = await request<CliConnectorPayload>(
+          `${ROUTE_PREFIX}/api/cli/${encodeURIComponent(connector.id)}/update`,
+          { method: 'POST' },
+        )
+        applyCli(response.value.connector)
+        setCliUpdateStarted(true)
+      } catch (cause) {
+        setCliUpdateError(cause instanceof Error ? cause.message : String(cause))
+      }
+    })()
+  }
+
+  const closeCliUpdate = (): void => {
+    setCliUpdateId(null)
+    setCliUpdateStarted(false)
+    setCliUpdateError(null)
+  }
+
   const cancelUninstall = (connector: CliConnectorView): void => {
     setCliUninstallPending(true)
     setCliUninstallError(null)
@@ -1453,6 +1484,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
   const cliInstall = cliConnectors.find(connector => connector.id === cliInstallId) ?? null
   const cliLogin = cliConnectors.find(connector => connector.id === cliLoginId) ?? null
   const cliUninstall = cliConnectors.find(connector => connector.id === cliUninstallId) ?? null
+  const cliUpdate = cliConnectors.find(connector => connector.id === cliUpdateId) ?? null
   const cliErrorConnector = cliConnectors.find(connector => connector.id === cliErrorId) ?? null
 
   const categories = useMemo(() => {
@@ -1497,6 +1529,18 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
       return `${connector.name} ${connector.vendor} ${connector.description} ${connector.examples.join(' ')}`.toLowerCase().includes(keyword)
     })
   }, [category, cliConnectors, query])
+
+  const gridEntries = useMemo(() => {
+    const rank = new Map<string, number>(BUILTIN_CATEGORIES.map((category, index) => [category, index]))
+    const categoryRank = (category: string): number => rank.get(category) ?? BUILTIN_CATEGORIES.length
+    const items = [
+      ...visible.map((card, index) => ({ kind: 'mcp' as const, category: card.category, index, card })),
+      ...visibleCli.map((connector, index) => ({ kind: 'cli' as const, category: connector.category, index, connector })),
+    ]
+    return items.sort((left, right) => categoryRank(left.category) - categoryRank(right.category)
+      || left.category.localeCompare(right.category, 'zh-CN')
+      || (left.kind === right.kind ? left.index - right.index : left.kind === 'mcp' ? -1 : 1))
+  }, [visible, visibleCli])
 
   const openDialog = (card: ConnectorCard, install = false): void => {
     setDialogError(null)
@@ -2063,6 +2107,114 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
       || oauthFlow?.connectorId === card.id
       || (isOAuthCard(card) && connections[card.id]?.authorized === false))
 
+  const renderCard = (card: ConnectorCard): JSX.Element => (
+    <ConnectorCardView
+    key={card.id}
+    card={card}
+    connection={connections[card.id]}
+    errorMessage={cardErrors[card.id]}
+    togglePending={togglePending === card.id}
+    authorizing={isAuthorizing(card)}
+    installing={pending === card.id}
+    connecting={credentialSaving === card.id || connectingId === card.id}
+    onOpen={() => openDialog(card, false)}
+    onInstall={() => {
+      if (card.instance !== undefined) {
+        installRecord(card, 'page')
+        return
+      }
+      if (isOAuthCard(card)) {
+        runOAuth(card, true, 'page')
+        return
+      }
+      if (isTokenCard(card)) {
+        installRecord(card, 'page')
+        return
+      }
+      if (card.auth.type === 'none') {
+        connect(card, undefined, 'page')
+        return
+      }
+      openDialog(card, true)
+    }}
+    onAuthorize={() => {
+      if (card.instance !== undefined && connections[card.id]?.instanceReady !== true) {
+        openInstanceDialog(card, 'config')
+        return
+      }
+      if (isOAuthCard(card)) {
+        runOAuth(card, false, 'page')
+        return
+      }
+      if (isTokenCard(card)) {
+        openCredentialDialog(card, connections[card.id]?.authorized === true ? 'update' : 'install')
+        return
+      }
+      openDialog(card, false)
+    }}
+    onCancelAuthorize={cancelAuthorize}
+    onUpdateCredential={isTokenCard(card) && connections[card.id]?.authorized === true
+      ? () => openCredentialDialog(card)
+      : undefined}
+    onReauthorize={isOAuthCard(card) && connections[card.id]?.authorized === true
+      ? () => runOAuth(card, false, 'page', true)
+      : undefined}
+    onReconfigureInstance={card.instance !== undefined && connections[card.id]?.instanceReady === true
+      ? () => openInstanceDialog(card, 'replace')
+      : undefined}
+    onRevoke={isOAuthCard(card)
+      ? () => revoke(card, 'page')
+      : undefined}
+    onTrial={() => startTrialFor(card)}
+    onToggle={enabled => toggleConnection(card, enabled)}
+    onDisconnect={() => disconnect(card)}
+    onDelete={card.source === 'custom'
+      ? () => {
+          setDeleteError(null)
+          setDeleteCard(card)
+        }
+      : undefined}
+    onEditCustom={card.source === 'custom' ? () => openCustomEdit(card) : undefined}
+  />
+  )
+
+  const renderCli = (connector: CliConnectorView): JSX.Element => (
+    <CliCardView
+    key={connector.id}
+    connector={connector}
+    togglePending={cliTogglePending === connector.id}
+    pending={cliBusyId === connector.id}
+    onOpen={() => setCliDetailId(connector.id)}
+    onInstall={() => setCliInstallId(connector.id)}
+    onLogin={() => runCliAction(connector.id, 'login')}
+    onLogout={() => runCliAction(connector.id, 'logout')}
+    onOpenInstall={() => setCliInstallId(connector.id)}
+    onOpenLogin={() => setCliLoginId(connector.id)}
+    onToggle={enabled => toggleCli(connector, enabled)}
+    onTrial={() => trialCli(connector)}
+    onOpenError={() => setCliErrorId(connector.id)}
+    onCancel={() => runCliAction(connector.id, 'cancel')}
+    onUninstall={() => {
+      setCliUninstallError(null)
+      setCliUninstallId(connector.id)
+    }}
+    onOpenUninstall={() => {
+      setCliUninstallError(null)
+      setCliUninstallId(connector.id)
+    }}
+    onUpdate={() => {
+      setCliUpdateError(null)
+      setCliUpdateId(connector.id)
+      startCliUpdate(connector)
+    }}
+    onOpenUpdate={() => {
+      setCliUpdateError(null)
+      setCliUpdateStarted(true)
+      setCliUpdateId(connector.id)
+    }}
+  />
+  )
+
   return (
     <div className={variant === 'overlay' ? 'dshc-root dshc-flow-root' : 'dshc-root'}>
       <div className="dshc-inner">
@@ -2074,7 +2226,16 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
           </button>
         </header>
 
-        <nav className="dshc-tabs">
+        <nav
+          className="dshc-tabs"
+          onWheel={event => {
+            const element = event.currentTarget
+            if (element.scrollWidth <= element.clientWidth) return
+            if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
+            element.scrollLeft += event.deltaY
+            event.preventDefault()
+          }}
+        >
           {categories.map(item => (
             <button
               key={item}
@@ -2102,102 +2263,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
           ? <div className="dshc-empty">{loading ? '正在加载连接器…' : '没有匹配的连接器'}</div>
           : (
             <div className="dshc-grid">
-              {visible.map(card => (
-                <ConnectorCardView
-                  key={card.id}
-                  card={card}
-                  connection={connections[card.id]}
-                  errorMessage={cardErrors[card.id]}
-                  togglePending={togglePending === card.id}
-                  authorizing={isAuthorizing(card)}
-                  installing={pending === card.id}
-                  connecting={credentialSaving === card.id || connectingId === card.id}
-                  onOpen={() => openDialog(card, false)}
-                  onInstall={() => {
-                    if (card.instance !== undefined) {
-                      installRecord(card, 'page')
-                      return
-                    }
-                    if (isOAuthCard(card)) {
-                      runOAuth(card, true, 'page')
-                      return
-                    }
-                    if (isTokenCard(card)) {
-                      installRecord(card, 'page')
-                      return
-                    }
-                    if (card.auth.type === 'none') {
-                      connect(card, undefined, 'page')
-                      return
-                    }
-                    openDialog(card, true)
-                  }}
-                  onAuthorize={() => {
-                    if (card.instance !== undefined && connections[card.id]?.instanceReady !== true) {
-                      openInstanceDialog(card, 'config')
-                      return
-                    }
-                    if (isOAuthCard(card)) {
-                      runOAuth(card, false, 'page')
-                      return
-                    }
-                    if (isTokenCard(card)) {
-                      openCredentialDialog(card, connections[card.id]?.authorized === true ? 'update' : 'install')
-                      return
-                    }
-                    openDialog(card, false)
-                  }}
-                  onCancelAuthorize={cancelAuthorize}
-                  onUpdateCredential={isTokenCard(card) && connections[card.id]?.authorized === true
-                    ? () => openCredentialDialog(card)
-                    : undefined}
-                  onReauthorize={isOAuthCard(card) && connections[card.id]?.authorized === true
-                    ? () => runOAuth(card, false, 'page', true)
-                    : undefined}
-                  onReconfigureInstance={card.instance !== undefined && connections[card.id]?.instanceReady === true
-                    ? () => openInstanceDialog(card, 'replace')
-                    : undefined}
-                  onRevoke={isOAuthCard(card)
-                    ? () => revoke(card, 'page')
-                    : undefined}
-                  onTrial={() => startTrialFor(card)}
-                  onToggle={enabled => toggleConnection(card, enabled)}
-                  onDisconnect={() => disconnect(card)}
-                  onDelete={card.source === 'custom'
-                    ? () => {
-                        setDeleteError(null)
-                        setDeleteCard(card)
-                      }
-                    : undefined}
-                  onEditCustom={card.source === 'custom' ? () => openCustomEdit(card) : undefined}
-                />
-              ))}
-              {visibleCli.map(connector => (
-                <CliCardView
-                  key={connector.id}
-                  connector={connector}
-                  togglePending={cliTogglePending === connector.id}
-                  pending={cliBusyId === connector.id}
-                  onOpen={() => setCliDetailId(connector.id)}
-                  onInstall={() => setCliInstallId(connector.id)}
-                  onLogin={() => runCliAction(connector.id, 'login')}
-                  onLogout={() => runCliAction(connector.id, 'logout')}
-                  onOpenInstall={() => setCliInstallId(connector.id)}
-                  onOpenLogin={() => setCliLoginId(connector.id)}
-                  onToggle={enabled => toggleCli(connector, enabled)}
-                  onTrial={() => trialCli(connector)}
-                  onOpenError={() => setCliErrorId(connector.id)}
-                  onCancel={() => runCliAction(connector.id, 'cancel')}
-                  onUninstall={() => {
-                    setCliUninstallError(null)
-                    setCliUninstallId(connector.id)
-                  }}
-                  onOpenUninstall={() => {
-                    setCliUninstallError(null)
-                    setCliUninstallId(connector.id)
-                  }}
-                />
-              ))}
+              {gridEntries.map(entry => entry.kind === 'mcp' ? renderCard(entry.card) : renderCli(entry.connector))}
             </div>
           )}
       </div>
@@ -2359,6 +2425,16 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
         />
       )}
 
+      {cliUpdate !== null && (
+        <CliUpdateDialog
+          connector={cliUpdate}
+          running={cliUpdate.phase === 'updating'}
+          started={cliUpdateStarted}
+          error={cliUpdateError}
+          onClose={closeCliUpdate}
+        />
+      )}
+
       {cliDetail !== null && (
         <CliDetailDialog
           connector={cliDetail}
@@ -2412,15 +2488,18 @@ interface CliCardViewProps {
   onCancel: () => void
   onUninstall: () => void
   onOpenUninstall: () => void
+  onUpdate: () => void
+  onOpenUpdate: () => void
 }
 
-function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onLogin, onLogout, onOpenInstall, onOpenLogin, onToggle, onTrial, onOpenError, onCancel, onUninstall, onOpenUninstall }: CliCardViewProps): JSX.Element {
+function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onLogin, onLogout, onOpenInstall, onOpenLogin, onToggle, onTrial, onOpenError, onCancel, onUninstall, onOpenUninstall, onUpdate, onOpenUpdate }: CliCardViewProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuAbove, setMenuAbove] = useState(false)
   const [tip, setTip] = useState<CardTip | null>(null)
   const menuRef = useRef<HTMLSpanElement>(null)
   const busy = pending
     || connector.phase === 'installing'
+    || connector.phase === 'updating'
     || connector.phase === 'configuring'
     || connector.phase === 'logging_in'
     || connector.phase === 'uninstalling'
@@ -2428,6 +2507,18 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
   const connected = connector.installed && connector.authenticated
   const canTry = connected && enabled && connector.skills.installed && !busy
   const error = !busy && connector.phase === 'error' && connector.lastError !== undefined ? connector.lastError : undefined
+  const busyLabel = connector.phase === 'installing'
+    ? '安装中…'
+    : connector.phase === 'updating'
+      ? '更新中…'
+      : connector.phase === 'uninstalling'
+        ? '卸载中…'
+        : connector.phase === 'configuring' ? '配置中…' : '登录中…'
+  const busyProgress = connector.phase === 'installing'
+    ? '安装进度'
+    : connector.phase === 'updating'
+      ? '更新进度'
+      : connector.phase === 'uninstalling' ? '卸载进度' : '登录进度'
   const stateLabel = busy
     ? '，处理中'
     : !connector.installed
@@ -2440,12 +2531,6 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
     const rect = button.getBoundingClientRect()
     setMenuAbove(rect.bottom + 170 > window.innerHeight)
     setMenuOpen(current => !current)
-  }
-
-  const openProgress = (): void => {
-    if (connector.phase === 'installing') onOpenInstall()
-    else if (connector.phase === 'uninstalling') onOpenUninstall()
-    else onOpenLogin()
   }
 
   useEffect(() => {
@@ -2559,18 +2644,20 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
               <button
                 type="button"
                 className="dshc-card-auth"
-                aria-label={busy ? (connector.stage ?? '处理中') : `登录 ${connector.name}`}
+                aria-label={busy ? `查看 ${connector.name} ${busyProgress}` : `登录 ${connector.name}`}
+                title={busy ? (connector.stage ?? busyLabel) : undefined}
                 onClick={event => {
                   event.stopPropagation()
                   if (connector.phase === 'uninstalling') onOpenUninstall()
+                  else if (connector.phase === 'updating') onOpenUpdate()
                   else if (busy) onOpenLogin()
                   else onLogin()
                 }}
               >
                 {busy && <Spinner inline />}
-                {busy ? (connector.phase === 'logging_in' ? '登录中…' : connector.stage ?? '处理中') : '登录'}
+                {busy ? busyLabel : '登录'}
               </button>
-              {error !== undefined
+              {!busy && (error !== undefined
                 ? <button
                     type="button"
                     className="dshc-card-action dshc-card-action-error dshc-card-status"
@@ -2585,7 +2672,7 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                   </button>
                 : <span className="dshc-card-installed" title="CLI 已安装" aria-label="CLI 已安装">
                     <IconCheck size={14} />
-                  </span>}
+                  </span>)}
               <span className="dshc-card-more-wrap" ref={menuRef}>
                 <button
                   type="button"
@@ -2607,18 +2694,6 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                         <button
                           type="button"
                           role="menuitem"
-                          className="dshc-menu-item"
-                          onClick={() => {
-                            setMenuOpen(false)
-                            openProgress()
-                          }}
-                        >
-                          <IconRefresh size={14} />
-                          查看进度
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
                           className="dshc-menu-item dshc-menu-item-danger"
                           onClick={() => {
                             setMenuOpen(false)
@@ -2626,45 +2701,61 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                           }}
                         >
                           <IconClose size={14} />
-                          {connector.phase === 'uninstalling' ? '取消卸载' : '取消登录'}
+                          {connector.phase === 'uninstalling'
+                            ? '取消卸载'
+                            : connector.phase === 'updating' ? '取消更新' : '取消登录'}
                         </button>
                       </>
                     ) : (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="dshc-menu-item dshc-menu-item-danger"
-                        onClick={() => {
-                          setMenuOpen(false)
-                          onUninstall()
-                        }}
-                      >
-                        <IconTrash size={14} />
-                        卸载 CLI
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="dshc-menu-item"
+                          onClick={() => {
+                            setMenuOpen(false)
+                            onUpdate()
+                          }}
+                        >
+                          <IconRefresh size={14} />
+                          更新 CLI
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="dshc-menu-item dshc-menu-item-danger"
+                          onClick={() => {
+                            setMenuOpen(false)
+                            onUninstall()
+                          }}
+                        >
+                          <IconTrash size={14} />
+                          卸载 CLI
+                        </button>
+                      </>
                     )}
                   </span>
                 )}
               </span>
             </span>
           ) : (
-            <span className="dshc-card-actions">
+            <span className={busy ? 'dshc-card-actions dshc-card-actions-busy' : 'dshc-card-actions'}>
               {busy
                 ? <button
                     type="button"
-                    className={`${actionClass} dshc-card-status`}
-                    title={connector.stage ?? '处理中'}
-                    aria-label={connector.phase === 'installing'
-                      ? `查看 ${connector.name} 安装进度`
-                      : connector.phase === 'uninstalling' ? `查看 ${connector.name} 卸载进度` : `查看 ${connector.name} 登录进度`}
+                    className="dshc-card-auth"
+                    title={connector.stage ?? busyLabel}
+                    aria-label={`查看 ${connector.name} ${busyProgress}`}
                     onClick={event => {
                       event.stopPropagation()
                       if (connector.phase === 'installing') onOpenInstall()
+                      else if (connector.phase === 'updating') onOpenUpdate()
                       else if (connector.phase === 'uninstalling') onOpenUninstall()
                       else onOpenLogin()
                     }}
                   >
-                    <Spinner />
+                    <Spinner inline />
+                    {busyLabel}
                   </button>
                 : error !== undefined
                   ? <button
@@ -2704,18 +2795,6 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                           <button
                             type="button"
                             role="menuitem"
-                            className="dshc-menu-item"
-                            onClick={() => {
-                              setMenuOpen(false)
-                              openProgress()
-                            }}
-                          >
-                            <IconRefresh size={14} />
-                            查看进度
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
                             className="dshc-menu-item dshc-menu-item-danger"
                             onClick={() => {
                               setMenuOpen(false)
@@ -2725,7 +2804,9 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                             <IconClose size={14} />
                             {connector.phase === 'installing'
                               ? '取消安装'
-                              : connector.phase === 'uninstalling' ? '取消卸载' : '取消登录'}
+                              : connector.phase === 'updating'
+                                ? '取消更新'
+                                : connector.phase === 'uninstalling' ? '取消卸载' : '取消登录'}
                           </button>
                         </>
                       ) : (
@@ -2766,6 +2847,18 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                           >
                             <IconPlug size={14} />
                             解绑
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="dshc-menu-item"
+                            onClick={() => {
+                              setMenuOpen(false)
+                              onUpdate()
+                            }}
+                          >
+                            <IconRefresh size={14} />
+                            更新 CLI
                           </button>
                           <button
                             type="button"
@@ -3137,6 +3230,71 @@ function CliUninstallDialog({ connector, running, pending, error, onClose, onCon
   )
 }
 
+interface CliUpdateDialogProps {
+  connector: CliConnectorView
+  running: boolean
+  started: boolean
+  error: string | null
+  onClose: () => void
+}
+
+function CliUpdateDialog({ connector, running, started, error, onClose }: CliUpdateDialogProps): JSX.Element {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="dshc-overlay"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="dshc-dialog" role="dialog" aria-modal="true" aria-busy={running} aria-label={`更新 ${connector.name} CLI`}>
+        <div className="dshc-dialog-head">
+          <span className="dshc-dialog-avatar"><CliLogo connector={connector} size={28} /></span>
+          <div className="dshc-dialog-title">
+            <h2>更新 {connector.name} CLI</h2>
+            <span>{connector.vendor}</span>
+          </div>
+          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+            <IconClose size={16} />
+          </button>
+        </div>
+        <div className="dshc-dialog-content">
+          {running ? (
+            <>
+              <div className="dshc-cli-wait">
+                <Spinner />
+                <span>{connector.stage ?? '正在更新 CLI…'}</span>
+              </div>
+              <p className="dshc-dialog-hint">
+                更新会原地升级 npm 全局 CLI 并重新拉取 Skills，不会清除登录态；关闭弹窗不会中止，可再次打开查看进度。
+              </p>
+            </>
+          ) : (
+            <p className="dshc-dialog-body">
+              {started ? `已更新到 v${connector.version ?? '最新版本'}。` : '准备更新…'}
+            </p>
+          )}
+          {error !== null && <p className="dshc-dialog-error">{error}</p>}
+        </div>
+        <div className="dshc-dialog-actions">
+          <span className="dshc-dialog-actions-right">
+            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
+              {running ? '后台继续' : '完成'}
+            </button>
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface CliDetailDialogProps {
   connector: CliConnectorView
   onClose: () => void
@@ -3157,7 +3315,7 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
     top: number
     above: boolean
   } | null>(null)
-  const busy = connector.phase === 'installing' || connector.phase === 'configuring' || connector.phase === 'logging_in' || connector.phase === 'uninstalling'
+  const busy = connector.phase === 'installing' || connector.phase === 'updating' || connector.phase === 'configuring' || connector.phase === 'logging_in' || connector.phase === 'uninstalling'
   const enabled = connector.enabled !== false
   const canTry = connector.authenticated && connector.installed && enabled && connector.skills.installed && !busy
   const status = busy
@@ -3250,6 +3408,11 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
         </div>
         <div className="dshc-dialog-content">
           <p className="dshc-dialog-body">{connector.description}</p>
+          {connector.versionOutdated && (
+            <p className="dshc-dialog-error">
+              CLI 版本 {connector.version ?? '未知'} 低于官方要求 {connector.minVersion}，请用「更多 → 更新 CLI」升级。
+            </p>
+          )}
           {capabilities !== undefined && capabilities.items.length > 0 && (
             <section className="dshc-tools dshc-capabilities">
               <div className="dshc-tools-head dshc-capability-head">
@@ -3258,11 +3421,15 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
                   className="dshc-tools-count"
                   title={capabilities.kind === 'products'
                     ? `${capabilities.total} 个命令`
-                    : `${capabilities.total} 个 Skills`}
+                    : capabilities.kind === 'groups'
+                      ? `${capabilities.total} 个命令组`
+                      : `${capabilities.total} 个 Skills`}
                 >
                   {capabilities.kind === 'products'
                     ? `${capabilities.items.length} 个产品`
-                    : `${capabilities.total} 个 Skills`}
+                    : capabilities.kind === 'groups'
+                      ? `${capabilities.items.length} 个命令组`
+                      : `${capabilities.total} 个 Skills`}
                 </span>
               </div>
               <div className="dshc-tool-list">
@@ -3643,7 +3810,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
       }}
     >
       <IconServer size={14} />
-      更换地址
+      更换{instanceNoun(card)}
     </button>
   )
   const editItem = onEditCustom === undefined ? null : (
@@ -3947,6 +4114,8 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
   const [copied, setCopied] = useState<number | null>(null)
   const [copyFailed, setCopyFailed] = useState<number | null>(null)
   const [showAllTools, setShowAllTools] = useState(false)
+  const [toolQuery, setToolQuery] = useState('')
+  const toolSearchRef = useRef<HTMLInputElement>(null)
   const [exampleTip, setExampleTip] = useState<{
     index: number
     action: 'copy' | 'try'
@@ -3954,6 +4123,10 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
     top: number
     above: boolean
   } | null>(null)
+  useEffect(() => {
+    setToolQuery('')
+  }, [card.id])
+
   const needsToken = isTokenCard(card)
   const oauth = isOAuthCard(card)
   const unauthorized = connection !== undefined && !connection.authorized
@@ -3966,6 +4139,13 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
   const toolDetails: ToolInfo[] = connection?.toolDetails ?? (connection?.tools ?? []).map(name => ({ name }))
   const canTry = connected && toolDetails.length > 0
   const visibleTools = showAllTools ? toolDetails : toolDetails.slice(0, 4)
+  const toolQueryText = toolQuery.trim().toLowerCase()
+  const filteredTools = toolQueryText === ''
+    ? toolDetails
+    : toolDetails.filter(tool => `${shortToolName(tool.name, connection?.serverName)} ${tool.name} ${tool.description ?? ''}`
+      .toLowerCase()
+      .includes(toolQueryText))
+  const shownTools = toolQueryText === '' ? visibleTools : filteredTools
   const examples = card.examples ?? []
   const instance = card.instance
   const showingInstall = installOpen && instance === undefined && connection === undefined && !needsToken
@@ -4073,7 +4253,11 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
           {connection?.error !== undefined && <p className="dshc-dialog-error">{connection.error}</p>}
 
           {needsInstanceConfig && (
-            <p className="dshc-dialog-hint">点击「配置」填写完整的 MCP 地址；地址只保存在本机。</p>
+            <p className="dshc-dialog-hint">
+              {card.instance?.presets === undefined
+                ? `点击「配置」填写完整的 MCP 地址；地址只保存在本机。`
+                : `点击「配置」选择${instanceNoun(card)}；选择结果只保存在本机。`}
+            </p>
           )}
 
           {needsToken && connection !== undefined && !connection.authorized && !needsInstanceConfig && (
@@ -4090,7 +4274,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
               {authorizing
                 ? '已打开授权页，完成授权后会自动同步；如已关闭授权页，请点「取消授权」后重试。'
                 : needsInstanceConfig
-                  ? '已安装，点击「配置」填写服务地址后开始授权。'
+                  ? `已安装，点击「配置」选择${instanceNoun(card)}后开始授权。`
                   : `已安装，点击授权后在浏览器完成 ${card.name} 授权。`}
             </p>
           )}
@@ -4106,18 +4290,50 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
             <section className="dshc-tools">
               <div className="dshc-tools-head">
                 <h3>可用工具</h3>
-                <span className="dshc-tools-count">{toolDetails.length}</span>
+                <span className="dshc-tools-count">
+                  {toolQueryText === '' ? toolDetails.length : `${filteredTools.length}/${toolDetails.length}`}
+                </span>
+                <span className="dshc-tools-search-wrap">
+                  <input
+                    ref={toolSearchRef}
+                    className="dshc-tools-search"
+                    type="text"
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-label="搜索工具"
+                    placeholder="搜索工具"
+                    value={toolQuery}
+                    onChange={event => setToolQuery(event.target.value)}
+                  />
+                  {toolQuery !== '' && (
+                    <button
+                      type="button"
+                      className="dshc-tools-search-clear"
+                      aria-label="清空搜索"
+                      title="清空搜索"
+                      onClick={() => {
+                        setToolQuery('')
+                        toolSearchRef.current?.focus()
+                      }}
+                    >
+                      <IconClose size={12} />
+                    </button>
+                  )}
+                </span>
               </div>
               <div className="dshc-tool-list">
-                {visibleTools.map(tool => (
+                {shownTools.map(tool => (
                   <ToolRow
                     key={tool.name}
                     name={shortToolName(tool.name, connection?.serverName)}
                     description={tool.description}
                   />
                 ))}
+                {toolQueryText !== '' && filteredTools.length === 0 && (
+                  <p className="dshc-tools-empty">没有匹配的工具</p>
+                )}
               </div>
-              {toolDetails.length > 4 && (
+              {toolQueryText === '' && toolDetails.length > 4 && (
                 <button
                   type="button"
                   className="dshc-tools-toggle"
@@ -4195,7 +4411,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
           )}
           {onReconfigureInstance !== undefined && connection !== undefined && !authorizing && (
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onReconfigureInstance}>
-              更换地址
+              更换{instanceNoun(card)}
             </button>
           )}
           {oauth && connection?.authorized === true && !authorizing && (
@@ -4415,17 +4631,24 @@ interface InstanceDialogProps {
 }
 
 function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: InstanceDialogProps): JSX.Element {
-  const [instanceUrl, setInstanceUrl] = useState('')
   const instance = card.instance
+  const presets = instance?.presets
+  const [instanceUrl, setInstanceUrl] = useState(presets?.[0]?.url ?? '')
   const config = mode === 'config'
+  const noun = instanceNoun(card)
+  const selectedPreset = presets?.find(item => item.url === instanceUrl)
+  const title = presets === undefined
+    ? (config ? '填写地址' : '更换地址')
+    : (config ? `选择${noun}` : `更换${noun}`)
   const submitLabel = config
     ? (isOAuthCard(card) ? '保存并授权' : isTokenCard(card) ? '保存并继续' : '保存并连接')
     : (isOAuthCard(card) ? '保存并重新授权' : isTokenCard(card) ? '保存' : '保存并重新连接')
+  const keepLocal = presets === undefined ? '地址只保存在本机。' : '选择结果只保存在本机。'
   const configHint = isOAuthCard(card)
-    ? '保存后会自动打开浏览器完成授权；地址只保存在本机。'
+    ? `保存后会自动打开浏览器完成授权；${keepLocal}`
     : isTokenCard(card)
-      ? '保存后继续填写令牌；地址只保存在本机。'
-      : '保存后直接连接；地址只保存在本机。'
+      ? `保存后继续填写令牌；${keepLocal}`
+      : `保存后直接连接；${keepLocal}`
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -4451,7 +4674,7 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
         className="dshc-dialog dshc-dialog-instance"
         role="dialog"
         aria-modal="true"
-        aria-label={`${config ? '填写' : '更换'} ${card.name} 地址`}
+        aria-label={`${config ? '填写' : '更换'} ${card.name} ${noun}`}
         noValidate
         onSubmit={event => {
           event.preventDefault()
@@ -4461,7 +4684,7 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
         <div className="dshc-dialog-head">
           <span className="dshc-dialog-avatar"><ConnectorLogo card={card} size={28} /></span>
           <div className="dshc-dialog-title">
-            <h2>{config ? '填写地址' : '更换地址'}</h2>
+            <h2>{title}</h2>
             <span>{card.name}</span>
           </div>
           <button type="button" className="dshc-icon-btn" aria-label="关闭" disabled={pending} onClick={onClose}>
@@ -4474,17 +4697,40 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
           </p>
           <label className="dshc-field">
             <span>{instance?.label ?? '服务地址'}</span>
-            <input
-              autoFocus
-              type="url"
-              autoComplete="off"
-              spellCheck={false}
-              disabled={pending}
-              placeholder={instance?.placeholder ?? 'https://gitlab.example.com'}
-              value={instanceUrl}
-              onChange={event => setInstanceUrl(event.target.value)}
-            />
+            {presets === undefined
+              ? (
+                  <input
+                    autoFocus
+                    type="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={pending}
+                    placeholder={instance?.placeholder ?? 'https://gitlab.example.com'}
+                    value={instanceUrl}
+                    onChange={event => setInstanceUrl(event.target.value)}
+                  />
+                )
+              : (
+                  <span className="dshc-select">
+                    <span className="dshc-select-control">
+                      <select
+                        autoFocus
+                        disabled={pending}
+                        value={instanceUrl}
+                        onChange={event => setInstanceUrl(event.target.value)}
+                      >
+                        {presets.map(item => (
+                          <option key={item.url} value={item.url}>{item.label}</option>
+                        ))}
+                      </select>
+                      <span className="dshc-select-toggle dshc-select-toggle-static" aria-hidden="true">
+                        <IconChevronDown size={14} />
+                      </span>
+                    </span>
+                  </span>
+                )}
           </label>
+          {selectedPreset?.hint !== undefined && <p className="dshc-dialog-hint">{selectedPreset.hint}</p>}
           {instance?.hint !== undefined && <p className="dshc-dialog-hint">{instance.hint}</p>}
           {instance?.help !== undefined && (
             <p className="dshc-dialog-hint">
@@ -4494,7 +4740,7 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
               {instance.help.hint !== undefined && <span>　{instance.help.hint}</span>}
             </p>
           )}
-          {instanceUrl.trim().startsWith('http://') && (
+          {presets === undefined && instanceUrl.trim().startsWith('http://') && (
             <p className="dshc-dialog-hint">非 https 地址会明文传输，请确认网络可信。</p>
           )}
           {error !== null && <p className="dshc-dialog-error">{error}</p>}
@@ -5193,14 +5439,15 @@ function installStyles(): void {
   style.textContent = `
 .dshc-root{
   height:100%;overflow:auto;
+  padding:0 clamp(24px,4vw,48px);
   background:var(--dsw-alias-bg-base);
   color:var(--dsw-alias-label-primary);
   font:14px/22px var(--dsw-font-family);
 }
-.dshc-root.dshc-flow-root{height:0;overflow:visible;background:transparent;pointer-events:none}
+.dshc-root.dshc-flow-root{height:0;overflow:visible;padding:0;background:transparent;pointer-events:none}
 .dshc-flow-root .dshc-inner{display:none}
 .dshc-flow-root .dshc-overlay{pointer-events:auto}
-.dshc-inner{box-sizing:border-box;max-width:960px;margin:0 auto;padding:28px clamp(24px,4vw,48px) 48px}
+.dshc-inner{box-sizing:border-box;max-width:960px;margin:0 auto;padding:28px 0 48px}
 .dshc-header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
 .dshc-header h1{margin:0;font-size:20px;font-weight:500;line-height:28px;color:var(--dsw-alias-label-primary)}
 .dshc-search{box-sizing:border-box;display:flex;align-items:center;gap:6px;height:36px;margin:0 0 16px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md);color:var(--dsw-alias-label-tertiary);cursor:text;transition:border-color .15s}
@@ -5220,7 +5467,11 @@ function installStyles(): void {
 .dshc-btn-danger{color:var(--dsw-alias-state-error-primary)}
 .dshc-btn-danger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .dshc-create{height:32px;padding:0 12px;border-radius:var(--dsw-radius-lg);font-size:13px;line-height:20px}
-.dshc-tabs{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-bottom:14px}
+.dshc-tabs{display:flex;flex-wrap:nowrap;align-items:center;gap:8px 12px;margin-bottom:14px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;padding-bottom:2px;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2) transparent}
+.dshc-tabs::-webkit-scrollbar{height:6px}
+.dshc-tabs::-webkit-scrollbar-thumb{border-radius:999px;background:var(--dsw-alias-scrollbar-bg-l2)}
+.dshc-tabs::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-scrollbar-hover-l2)}
+.dshc-tabs .dshc-tab{flex:none}
 .dshc-tab{box-sizing:border-box;display:inline-flex;align-items:center;height:28px;padding:0 10px;border:0;border-radius:14px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:14px;line-height:22px;white-space:nowrap;cursor:pointer}
 .dshc-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dshc-tab-active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
@@ -5267,6 +5518,8 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-card-controls{display:flex;align-items:center;justify-content:flex-end;gap:6px;width:0;opacity:0;overflow:hidden;pointer-events:none;transition:width .26s cubic-bezier(.2,0,0,1),opacity .18s ease}
 .dshc-card-controls>*{flex:none}
 .dshc-card:hover .dshc-card-controls,.dshc-card:focus-within .dshc-card-controls,.dshc-card-menu-open .dshc-card-controls{width:62px;opacity:1;pointer-events:auto}
+.dshc-card-actions-busy .dshc-card-controls{width:28px;opacity:1;pointer-events:auto}
+.dshc-card:hover .dshc-card-actions-busy .dshc-card-controls,.dshc-card:focus-within .dshc-card-actions-busy .dshc-card-controls,.dshc-card-menu-open .dshc-card-actions-busy .dshc-card-controls{width:28px;opacity:1;pointer-events:auto}
 .dshc-card-menu-open .dshc-card-controls{overflow:visible}
 .dshc-switch{position:relative;box-sizing:border-box;width:28px;height:16px;flex:none;margin:0;padding:0;border:0;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 40%,transparent);cursor:pointer;transition:background-color .15s}
 .dshc-switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--dsw-alias-label-primary-foreground);box-shadow:0 1px 2px color-mix(in srgb,#000 25%,transparent);transition:transform .15s}
@@ -5366,6 +5619,10 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-field-reveal:focus-visible{outline:none;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dshc-field input::placeholder{color:var(--dsw-alias-label-caption)}
 .dshc-field input:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
+.dshc-field select{box-sizing:border-box;width:100%;height:40px;padding:0 38px 0 14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;outline:none;appearance:none;cursor:pointer}
+.dshc-field select:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
+.dshc-field select:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}
+.dshc-select-toggle-static{pointer-events:none}
 .dshc-field textarea{box-sizing:border-box;min-height:180px;max-height:320px;padding:10px 14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:12px/18px var(--dsw-font-markdown-code-font-family);outline:none;resize:vertical}
 .dshc-json-editor{position:relative;height:260px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);overflow:hidden;background:#fff}
 .dshc-json-editor-mount{position:absolute;inset:0}
@@ -5396,6 +5653,13 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-dialog-alert{margin:0 24px;padding:8px 10px;border:.5px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 32%,transparent);border-radius:var(--dsw-radius-md);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 7%,transparent);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
 .dshc-tools{display:flex;flex-direction:column;gap:8px;min-height:0}
 .dshc-tools-head{display:flex;align-items:center;gap:8px}
+.dshc-tools-search-wrap{position:relative;display:inline-flex;align-items:center;margin-left:auto}
+.dshc-tools-search{box-sizing:border-box;width:168px;height:28px;padding:0 28px 0 10px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:26px;outline:none}
+.dshc-tools-search-clear{position:absolute;top:50%;right:3px;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.dshc-tools-search-clear:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dshc-tools-search::placeholder{color:var(--dsw-alias-label-caption)}
+.dshc-tools-search:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
+.dshc-tools-empty{margin:0;padding:16px 12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 .dshc-tools-head h3{margin:0;font-size:14px;font-weight:500;line-height:20px}
 .dshc-tools-count{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:18px}
 .dshc-capability-head{gap:6px}
