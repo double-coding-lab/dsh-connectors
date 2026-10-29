@@ -58,10 +58,18 @@ const authSchema = z.discriminatedUnion('type', [
     flow: z.literal('pkce'),
     registration: z.union([
       z.literal('dcr'),
+      z.literal('user'),
       z.object({ clientId: z.string().min(1) }).strict(),
     ]),
     scopes: z.array(z.string().min(1)).optional(),
     clientName: z.string().min(1).optional(),
+    endpoints: z.object({
+      authorization: z.string().url(),
+      token: z.string().url(),
+    }).strict().optional(),
+    authorizeParams: z.record(z.string(), z.string()).optional(),
+    tokenMethod: z.enum(['POST', 'GET']).optional(),
+    pkce: z.boolean().optional(),
     help: authHelpSchema.optional(),
   }).strict(),
 ])
@@ -82,7 +90,7 @@ export const providerDefinitionSchema = z.object({
   instance: instanceSchema.optional(),
   server: z.object({
     serverName: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'serverName 只能包含小写字母、数字、下划线和连字符').optional(),
-    transport: z.literal('streamable-http'),
+    transport: z.enum(['streamable-http', 'sse']),
     url: z.string().min(1).optional(),
   }).strict(),
   auth: authSchema,
@@ -102,6 +110,13 @@ export const providerDefinitionSchema = z.object({
       code: 'custom',
       path: ['server', 'url'],
       message: '不带 instance 时必须使用 https 地址',
+    })
+  }
+  if (provider.auth.type === 'oauth2' && provider.auth.registration === 'user' && provider.auth.endpoints === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['auth', 'endpoints'],
+      message: 'registration 为 user 时必须显式提供 authorization 与 token 端点',
     })
   }
 })

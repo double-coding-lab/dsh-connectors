@@ -1,4 +1,5 @@
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
+import { fileURLToPath } from 'node:url'
 
 import type { CardAuth, ConnectorCard, ConnectionView, CustomConfigView, ToolInfo } from '../shared/types.js'
 import { BUILTIN_CATEGORIES, MAX_EXAMPLES, resolveCategory, validateCategory } from '../shared/categories.js'
@@ -8,6 +9,7 @@ import { ConnectError } from './errors.js'
 import { resolveInstanceUrl } from './instanceUrl.js'
 import { assertPrivateUrlsAllowed, parseMcpServers } from './mcpServers.js'
 import { openExternal } from './openExternal.js'
+
 import {
   buildAuthorizeUrl,
   createPkce,
@@ -20,6 +22,8 @@ import {
   type OAuthMetadata,
 } from './oauth.js'
 import { defineConnectorDomain, type ConnectionRecord, type CustomConnectorRecord } from './store.js'
+
+const SSE_BRIDGE_PATH = fileURLToPath(new URL('./sse-bridge.js', import.meta.url))
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const ENTRY_PREFIX = 'dsh-connectors'
@@ -50,6 +54,7 @@ interface OAuthPending {
   redirectUri: string
   client: OAuthClient
   metadata: OAuthMetadata
+  tokenMethod: 'POST' | 'GET'
   serverUrl: string
   createdAt: number
 }
@@ -174,6 +179,21 @@ function sameConnectionConfig(
 }
 
 function entryConfig(record: ConnectionRecord, failOnStartupError: boolean): Record<string, unknown> {
+  if (record.transport === 'sse') {
+    if (record.url === undefined) throw new ConnectError('invalid_connector', 'SSE 连接缺少地址')
+    return {
+      transport: 'stdio',
+      serverName: record.serverName,
+      command: process.execPath,
+      args: [SSE_BRIDGE_PATH],
+      env: {
+        DSH_SSE_URL: record.url,
+        DSH_SSE_HEADERS: JSON.stringify(headersFor(record)),
+        ELECTRON_RUN_AS_NODE: '1',
+      },
+      failOnStartupError,
+    }
+  }
   if (record.transport === 'stdio') {
     if (record.command === undefined) throw new ConnectError('invalid_connector', 'stdio 连接缺少启动命令')
     return {
@@ -666,28 +686,50 @@ export class ConnectionService {
         ? new ConnectError('instance_required', '请先填写服务地址')
         : new ConnectError('invalid_connector', '连接记录缺少服务地址')
     }
-    const cachedMetadata = this.oauthMetadata.get(serverUrl)
-    const baseMetadata = cachedMetadata !== undefined && Date.now() - cachedMetadata.at < OAUTH_METADATA_TTL_MS
-      ? cachedMetadata.metadata
-      : await fetchOAuthMetadata(serverUrl)
-    this.oauthMetadata.set(serverUrl, { metadata: baseMetadata, at: Date.now() })
-
     const auth = card.auth
-    const scope = auth.scopes !== undefined
-      ? auth.scopes.join(' ')
-      : baseMetadata.scope
-    const metadata: OAuthMetadata = { ...baseMetadata, scope }
+    let metadata: OAuthMetadata
+    if (auth.endpoints !== undefined) {
+      metadata = {
+        authorizationEndpoint: auth.endpoints.authorization,
+        tokenEndpoint: auth.endpoints.token,
+        scope: auth.scopes === undefined ? '' : auth.scopes.join(' '),
+        ...(auth.authorizeParams === undefined ? {} : { authorizeParams: auth.authorizeParams }),
+      }
+    } else {
+      const cachedMetadata = this.oauthMetadata.get(serverUrl)
+      const baseMetadata = cachedMetadata !== undefined && Date.now() - cachedMetadata.at < OAUTH_METADATA_TTL_MS
+        ? cachedMetadata.metadata
+        : await fetchOAuthMetadata(serverUrl)
+      this.oauthMetadata.set(serverUrl, { metadata: baseMetadata, at: Date.now() })
+      const scope = auth.scopes !== undefined ? auth.scopes.join(' ') : baseMetadata.scope
+      metadata = { ...baseMetadata, scope }
+    }
+
     const clientKey = `${serverUrl}|${redirect}`
     const cached = auth.registration === 'dcr' ? this.oauthClients.get(clientKey) : undefined
+    const staticClient = auth.registration === 'dcr' || auth.registration === 'user' ? undefined : auth.registration
     const previousClient = previous.oauth !== undefined
       && previous.oauth.redirectUri === redirect
-      && (auth.registration === 'dcr' || auth.registration.clientId === previous.oauth.clientId)
+      && (auth.registration === 'dcr' || staticClient?.clientId === previous.oauth.clientId)
       ? { clientId: previous.oauth.clientId, clientSecret: previous.oauth.clientSecret }
       : undefined
-    const client = previousClient ?? cached ?? await this.oauthClientFor(auth, metadata, redirect)
+    let client: OAuthClient
+    if (auth.registration === 'user') {
+      const stored = previous.oauthClient
+        ?? (previous.oauth !== undefined && previous.oauth.clientSecret !== undefined
+          ? { clientId: previous.oauth.clientId, clientSecret: previous.oauth.clientSecret }
+          : undefined)
+      if (stored === undefined) {
+        throw new ConnectError('oauth_client_required', `${card.name} 需要先填写应用的 AppKey 与 SecretKey`)
+      }
+      client = stored
+    } else {
+      client = previousClient ?? cached ?? await this.oauthClientFor(auth, metadata, redirect)
+    }
     if (auth.registration === 'dcr') this.oauthClients.set(clientKey, client)
 
-    const { verifier, challenge } = createPkce()
+    const usePkce = auth.pkce !== false
+    const { verifier, challenge } = usePkce ? createPkce() : { verifier: '', challenge: undefined as string | undefined }
     const state = createState()
     const now = Date.now()
     this.pruneOAuthPending()
@@ -698,6 +740,7 @@ export class ConnectionService {
       redirectUri: redirect,
       client,
       metadata,
+      tokenMethod: auth.tokenMethod ?? 'POST',
       serverUrl,
       createdAt: now,
     })
@@ -706,10 +749,33 @@ export class ConnectionService {
       clientId: client.clientId,
       redirectUri: redirect,
       state,
-      challenge,
+      ...(challenge === undefined ? {} : { challenge }),
     })
     const opened = await openExternal(authorizeUrl)
     return { authorizeUrl, flowId: state, opened }
+  }
+
+  async saveOAuthClient(connectorId: string, clientId: string, clientSecret: string): Promise<ConnectionView> {
+    const card = this.cardFor(connectorId)
+    if (card === undefined || card.auth.type !== 'oauth2' || card.auth.registration !== 'user') {
+      throw new ConnectError('invalid_request', '该连接器不需要配置应用凭据')
+    }
+    const table = await this.table()
+    const record = table.get(connectorId)
+    if (record === undefined) throw new ConnectError('not_installed', '请先安装连接器，再配置应用')
+    if (record.oauthClient?.clientId === clientId && record.oauthClient.clientSecret === clientSecret) {
+      return this.view(record)
+    }
+    const next: ConnectionRecord = {
+      ...record,
+      oauthClient: { clientId, clientSecret },
+      updatedAt: Date.now(),
+    }
+    delete next.oauth
+    delete next.lastError
+    await this.removeEntry(connectorId)
+    await table.put(next.key, next)
+    return this.view(next)
   }
 
   private async oauthClientFor(
@@ -722,6 +788,9 @@ export class ConnectionService {
         throw new ConnectError('oauth_failed', '该实例未提供动态客户端注册，暂不支持；请升级实例或使用自定义连接器')
       }
       return registerOAuthClient(metadata, redirect, auth.clientName ?? 'DSH 连接器')
+    }
+    if (auth.registration === 'user') {
+      throw new ConnectError('oauth_client_required', '请先填写应用的 AppKey 与 SecretKey')
     }
     return { clientId: auth.registration.clientId }
   }
@@ -786,8 +855,9 @@ export class ConnectionService {
       redirectUri: pending.redirectUri,
       clientId: pending.client.clientId,
       ...(pending.client.clientSecret === undefined ? {} : { clientSecret: pending.client.clientSecret }),
-      verifier: pending.verifier,
+      ...(pending.verifier === '' ? {} : { verifier: pending.verifier }),
       ...(pending.metadata.resource === undefined ? {} : { resource: pending.metadata.resource }),
+      tokenMethod: pending.tokenMethod,
     })
 
     const table = await this.table()
@@ -808,6 +878,7 @@ export class ConnectionService {
         ...(pending.client.clientSecret === undefined ? {} : { clientSecret: pending.client.clientSecret }),
         redirectUri: pending.redirectUri,
         tokenEndpoint: pending.metadata.tokenEndpoint,
+        tokenMethod: pending.tokenMethod,
         authorizationEndpoint: pending.metadata.authorizationEndpoint,
         accessToken: tokens.accessToken,
         ...(tokens.refreshToken === undefined ? {} : { refreshToken: tokens.refreshToken }),
@@ -816,6 +887,9 @@ export class ConnectionService {
         ...(pending.metadata.resource === undefined ? {} : { resource: pending.metadata.resource }),
       },
       enabled: true,
+      ...(pending.client.clientSecret === undefined
+        ? (previous?.oauthClient === undefined ? {} : { oauthClient: previous.oauthClient })
+        : { oauthClient: { clientId: pending.client.clientId, clientSecret: pending.client.clientSecret } }),
       createdAt: previous?.createdAt ?? now,
       updatedAt: now,
     }
@@ -856,6 +930,7 @@ export class ConnectionService {
       clientId: oauth.clientId,
       ...(oauth.clientSecret === undefined ? {} : { clientSecret: oauth.clientSecret }),
       ...(oauth.resource === undefined ? {} : { resource: oauth.resource }),
+      ...(oauth.tokenMethod === undefined ? {} : { tokenMethod: oauth.tokenMethod }),
     })
     return {
       ...record,
@@ -994,6 +1069,7 @@ export class ConnectionService {
 
     const server: Record<string, unknown> = {}
     if (record.url !== undefined) server.url = redactCustomUrl(record.url)
+    if (record.transport === 'sse') server.type = 'sse'
     if (record.command !== undefined) server.command = record.command
     if (record.args !== undefined) server.args = record.args
     if (record.env !== undefined) server.env = redactValues(record.env)
@@ -1163,6 +1239,9 @@ export class ConnectionService {
       authorized: endpointReady
         && (!this.needsAuth(card) || record.auth !== undefined || record.oauth !== undefined),
       ...(card?.instance === undefined ? {} : { instanceReady: record.url !== undefined }),
+      ...(card?.auth.type === 'oauth2' && card.auth.registration === 'user'
+        ? { oauthClientReady: record.oauthClient !== undefined || record.oauth !== undefined }
+        : {}),
       tools: toolDetails.map(tool => tool.name),
       toolDetails,
       error: record.lastError,
@@ -1179,7 +1258,9 @@ export class ConnectionService {
       category: resolveCategory(record.category),
       summary: record.description ?? (stdio
         ? '通过 mcpServers 导入的本地 stdio MCP Server。'
-        : '通过 mcpServers 导入的 Streamable HTTP MCP Server。'),
+        : record.transport === 'sse'
+          ? '通过 mcpServers 导入的 SSE MCP Server。'
+          : '通过 mcpServers 导入的 Streamable HTTP MCP Server。'),
       ...(record.description === undefined ? {} : { description: record.description }),
       ...(record.examples === undefined ? {} : { examples: record.examples }),
       tags: ['自定义', resolveCategory(record.category), record.transport],

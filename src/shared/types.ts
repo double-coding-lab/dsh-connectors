@@ -1,4 +1,4 @@
-export type TransportKind = 'stdio' | 'streamable-http'
+export type TransportKind = 'stdio' | 'streamable-http' | 'sse'
 
 export interface AuthHelp {
   url: string
@@ -13,9 +13,13 @@ export type CardAuth =
   | {
     type: 'oauth2'
     flow: 'pkce'
-    registration: 'dcr' | { clientId: string }
+    registration: 'dcr' | { clientId: string } | 'user'
     scopes?: string[]
     clientName?: string
+    endpoints?: { authorization: string; token: string }
+    authorizeParams?: Record<string, string>
+    tokenMethod?: 'POST' | 'GET'
+    pkce?: boolean
     help?: AuthHelp
   }
 
@@ -72,6 +76,7 @@ export interface ConnectionView {
   enabled: boolean
   authorized: boolean
   instanceReady?: boolean
+  oauthClientReady?: boolean
   tools: string[]
   toolDetails: ToolInfo[]
   error?: string

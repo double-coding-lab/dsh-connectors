@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { ConnectError } from './errors.js'
 import { MAX_EXAMPLES } from '../shared/categories.js'
 
-export type CustomTransport = 'streamable-http' | 'stdio'
+export type CustomTransport = 'streamable-http' | 'sse' | 'stdio'
 
 export interface McpServerSeed {
   serverName: string
@@ -92,6 +92,28 @@ function parseXdsh(raw: Record<string, unknown>, serverName: string): { category
   }
 }
 
+function normalizeTransport(value: string, displayName: string): CustomTransport {
+  const key = value.trim().toLowerCase()
+  if (key === 'sse') return 'sse'
+  if (key === 'http' || key === 'streamable-http' || key === 'streamablehttp') return 'streamable-http'
+  if (key === 'stdio') return 'stdio'
+  throw new ConnectError(
+    'invalid_server_config',
+    `${displayName} 的传输类型 "${value}" 不受支持，仅支持 sse / streamable-http / stdio`,
+  )
+}
+
+function declaredTransport(raw: Record<string, unknown>, displayName: string): CustomTransport | undefined {
+  const fromType = optionalString(raw.type, `${displayName}.type`)
+  const fromTransport = optionalString(raw.transport, `${displayName}.transport`)
+  const type = fromType === undefined ? undefined : normalizeTransport(fromType, displayName)
+  const transport = fromTransport === undefined ? undefined : normalizeTransport(fromTransport, displayName)
+  if (type !== undefined && transport !== undefined && type !== transport) {
+    throw new ConnectError('invalid_server_config', `${displayName} 的 type 与 transport 不一致`)
+  }
+  return type ?? transport
+}
+
 function parseServer(displayName: string, raw: unknown): McpServerSeed {
   if (displayName.length > MAX_CONFIG_NAME_LENGTH || !CONFIG_NAME_RE.test(displayName)) {
     throw new ConnectError(
@@ -113,8 +135,12 @@ function parseServer(displayName: string, raw: unknown): McpServerSeed {
   if (url === undefined && command === undefined) {
     throw new ConnectError('invalid_server_config', `${displayName} 需要配置 url 或 command`)
   }
+  const declared = declaredTransport(raw, displayName)
 
   if (url !== undefined) {
+    if (declared === 'stdio') {
+      throw new ConnectError('invalid_server_config', `${displayName} 配置了 url 时不能声明 stdio 传输`)
+    }
     try {
       const parsed = new URL(url)
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('bad protocol')
@@ -126,7 +152,7 @@ function parseServer(displayName: string, raw: unknown): McpServerSeed {
       serverName,
       displayName,
       connectorId: `custom-${serverName}`,
-      transport: 'streamable-http',
+      transport: declared === 'sse' ? 'sse' : 'streamable-http',
       url,
       ...(headers === undefined ? {} : { headers }),
       ...(metadata.category === undefined ? {} : { category: metadata.category }),
@@ -137,6 +163,9 @@ function parseServer(displayName: string, raw: unknown): McpServerSeed {
 
   if (command === undefined) {
     throw new ConnectError('invalid_server_config', `${displayName} 需要配置 command`)
+  }
+  if (declared !== undefined && declared !== 'stdio') {
+    throw new ConnectError('invalid_server_config', `${displayName} 配置了 command 时只能声明 stdio 传输`)
   }
   const args = stringArray(raw.args, `${displayName}.args`)
   const env = stringRecord(raw.env, `${displayName}.env`)

@@ -11,6 +11,8 @@ export interface OAuthMetadata {
   scope: string
   /** RFC 8707 资源标识；部分服务（如天眼查）会校验它必须等于 MCP 端点 */
   resource?: string
+  /** 授权 URL 的固定附加参数，例如百度网盘的 qrcode=1 */
+  authorizeParams?: Record<string, string>
 }
 
 export interface OAuthClient {
@@ -179,7 +181,7 @@ export function createState(): string {
 
 export function buildAuthorizeUrl(
   metadata: OAuthMetadata,
-  options: { clientId: string; redirectUri: string; state: string; challenge: string },
+  options: { clientId: string; redirectUri: string; state: string; challenge?: string },
 ): string {
   const url = new URL(metadata.authorizationEndpoint)
   url.searchParams.set('client_id', options.clientId)
@@ -187,9 +189,14 @@ export function buildAuthorizeUrl(
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('state', options.state)
   if (metadata.scope !== '') url.searchParams.set('scope', metadata.scope)
-  url.searchParams.set('code_challenge', options.challenge)
-  url.searchParams.set('code_challenge_method', 'S256')
+  if (options.challenge !== undefined) {
+    url.searchParams.set('code_challenge', options.challenge)
+    url.searchParams.set('code_challenge_method', 'S256')
+  }
   if (metadata.resource !== undefined) url.searchParams.set('resource', metadata.resource)
+  for (const [key, value] of Object.entries(metadata.authorizeParams ?? {})) {
+    url.searchParams.set(key, value)
+  }
   return url.toString()
 }
 
@@ -212,8 +219,9 @@ export async function exchangeCode(
     redirectUri: string
     clientId: string
     clientSecret?: string
-    verifier: string
+    verifier?: string
     resource?: string
+    tokenMethod?: 'POST' | 'GET'
   },
 ): Promise<OAuthTokens> {
   const params = new URLSearchParams({
@@ -221,21 +229,29 @@ export async function exchangeCode(
     code: options.code,
     redirect_uri: options.redirectUri,
     client_id: options.clientId,
-    code_verifier: options.verifier,
   })
+  if (options.verifier !== undefined) params.set('code_verifier', options.verifier)
   if (options.clientSecret !== undefined) params.set('client_secret', options.clientSecret)
   if (options.resource !== undefined) params.set('resource', options.resource)
-  const body = await getJson(tokenEndpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  })
+  const body = options.tokenMethod === 'GET'
+    ? await getJson(`${tokenEndpoint}${tokenEndpoint.includes('?') ? '&' : '?'}${params.toString()}`)
+    : await getJson(tokenEndpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    })
   return parseTokens(body)
 }
 
 export async function refreshAccessToken(
   tokenEndpoint: string,
-  options: { refreshToken: string; clientId: string; clientSecret?: string; resource?: string },
+  options: {
+    refreshToken: string
+    clientId: string
+    clientSecret?: string
+    resource?: string
+    tokenMethod?: 'POST' | 'GET'
+  },
 ): Promise<OAuthTokens> {
   const params = new URLSearchParams({
     grant_type: 'refresh_token',
@@ -244,10 +260,12 @@ export async function refreshAccessToken(
   })
   if (options.clientSecret !== undefined) params.set('client_secret', options.clientSecret)
   if (options.resource !== undefined) params.set('resource', options.resource)
-  const body = await getJson(tokenEndpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  })
+  const body = options.tokenMethod === 'GET'
+    ? await getJson(`${tokenEndpoint}${tokenEndpoint.includes('?') ? '&' : '?'}${params.toString()}`)
+    : await getJson(tokenEndpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    })
   return parseTokens(body)
 }

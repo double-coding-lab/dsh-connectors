@@ -67,6 +67,9 @@ npm run check
 
 规则：
 
+- `auth.oauth2` 还支持 `registration: "user"`（用户在面板填写 AppKey/SecretKey）配 `endpoints`、`authorizeParams`、`tokenMethod: "GET"`、`pkce: false`，用于不支持 DCR、且由用户自建应用的服务。
+- `server.transport` 支持 `streamable-http` 与旧版 `sse`；`sse` 地址同样必须是 https，由插件内置的 stdio 桥转接到 `@deepseek-ai/dsh-mcp-client`，不需要额外代码。
+
 - `instance.label` 必填；`placeholder` / `hint` / `help` 可选。`help` 用于在地址弹窗里提供获取地址的官方指引（`{ url, label, hint? }`，url 必须是 https）。
 - 带 `instance` 时禁止设置 `server.url`；完整地址由用户填写。
 - 用户填写的地址在运行时校验：允许 http/https 与内网，允许 query（用于 `?key=...` 这类地址），拒绝账号密码与锚点；界面会对 http 显示明文提示。

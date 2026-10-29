@@ -1,0 +1,36 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "baidu-netdisk",
+  "name": "百度网盘",
+  "vendor": "百度",
+  "category": "办公协作",
+  "summary": "把网盘文件列表、搜索、整理与分享接给 Agent。",
+  "description": "百度网盘官方 MCP 服务（SSE）：文件与文档/图片/视频列表、文件详情、关键词与语义搜索、创建/复制/移动/重命名/删除、分享链接、容量与账号信息。按官方「在 Agent 中自定义使用」方式接入：打开官方授权链接拿到 Access Token 后粘贴到卡片，无需创建应用或配置回调；SSE 模式不包含本地上传。",
+  "examples": [
+    "看看我网盘根目录最近改过的文件，按类型分组",
+    "在 /资料 下新建文件夹【2026 Q4】，把相关文档移动进去",
+    "语义搜索：找出与【上季度财报】相关的 PDF",
+    "把 /交付 里的方案文档生成一个 7 天有效的分享链接"
+  ],
+  "tags": [
+    "网盘",
+    "文件管理",
+    "分享"
+  ],
+  "order": 92,
+  "server": {
+    "serverName": "baidu-netdisk",
+    "transport": "sse",
+    "url": "https://mcp-pan.baidu.com/sse"
+  },
+  "auth": {
+    "type": "bearer",
+    "label": "百度网盘 Access Token",
+    "help": {
+      "url": "https://openapi.baidu.com/oauth/2.0/authorize?response_type=token&client_id=QHOuRXiepJBMjtk0esLhrPoNlQyYd0mF&redirect_uri=oob&scope=basic,netdisk&qrcode=1",
+      "label": "打开百度网盘官方授权链接",
+      "hint": "登录并同意授权后，从浏览器地址栏复制 access_token 参数；令牌只保存在本机。"
+    }
+  }
+}

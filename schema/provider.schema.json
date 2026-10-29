@@ -126,8 +126,8 @@
           "description": "MCP 工具前缀 mcp__<serverName>__；缺省等于 provider id，必须全局唯一。"
         },
         "transport": {
-          "const": "streamable-http",
-          "description": "内置 provider 只支持远程 Streamable HTTP；本地 stdio 通过自定义 mcpServers 导入。"
+          "enum": ["streamable-http", "sse"],
+          "description": "远程传输：Streamable HTTP 或旧版 SSE（SSE 由插件内置桥接进程转成 stdio）；本地 stdio 通过自定义 mcpServers 导入。"
         },
         "url": {
           "type": "string",
@@ -206,6 +206,9 @@
                   "const": "dcr"
                 },
                 {
+                  "const": "user"
+                },
+                {
                   "type": "object",
                   "additionalProperties": false,
                   "required": ["clientId"],
@@ -216,7 +219,39 @@
                     }
                   }
                 }
-              ]
+              ],
+              "description": "dcr 自动注册；user 由用户在面板里填写应用 AppKey/SecretKey；对象形式为静态 clientId。"
+            },
+            "endpoints": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["authorization", "token"],
+              "description": "显式授权与令牌端点；设置后跳过 OAuth 元数据发现。registration=user 时必填。",
+              "properties": {
+                "authorization": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "token": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            },
+            "authorizeParams": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "附加到授权 URL 的固定参数，例如百度网盘的 qrcode=1。"
+            },
+            "tokenMethod": {
+              "enum": ["POST", "GET"],
+              "description": "换取与刷新令牌的 HTTP 方法，默认 POST。"
+            },
+            "pkce": {
+              "type": "boolean",
+              "description": "是否使用 PKCE，默认 true；不支持 PKCE 的服务设为 false。"
             },
             "scopes": {
               "type": "array",

@@ -273,6 +273,26 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
         return
       }
 
+      const oauthClientId = req.method === 'POST'
+        ? new RegExp(`^${ROUTE_PREFIX}/api/connections/([^/]+)/oauth-client$`).exec(path)?.[1]
+        : undefined
+      if (oauthClientId !== undefined) {
+        const body = await readJson(req) as { clientId?: unknown; clientSecret?: unknown }
+        if (typeof body.clientId !== 'string' || body.clientId.trim() === '') {
+          throw new ConnectError('invalid_request', '缺少 AppKey')
+        }
+        if (typeof body.clientSecret !== 'string' || body.clientSecret.trim() === '') {
+          throw new ConnectError('invalid_request', '缺少 SecretKey')
+        }
+        const connection = await options.connections.saveOAuthClient(
+          decodeURIComponent(oauthClientId),
+          body.clientId.trim(),
+          body.clientSecret.trim(),
+        )
+        json(res, 200, { ok: true, value: { connection } })
+        return
+      }
+
       if (req.method === 'POST' && path === `${ROUTE_PREFIX}/api/oauth/cancel`) {
         const body = await readJson(req) as { flowId?: unknown }
         if (typeof body.flowId !== 'string' || body.flowId === '') {

@@ -1,12 +1,12 @@
 # dsh-connectors
 
-DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览连接器目录，一键接入 MCP Server 并完成授权与凭据保管；支持 mcpServers JSON 自定义接入、连接状态与故障诊断。MCP 连接、stdio 子进程与工具注册由 DSH 官方 `@deepseek-ai/dsh-mcp-client` 负责，插件只做目录、凭据和界面。
+DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览连接器目录，一键接入 MCP Server 并完成授权与凭据保管；支持 mcpServers JSON 自定义接入、连接状态与故障诊断。MCP 连接、stdio 子进程与工具注册由 DSH 官方 `@deepseek-ai/dsh-mcp-client` 负责；旧版 SSE 服务由插件内置的 stdio 桥转接，插件还负责目录、凭据和界面。
 
 ## 当前进度
 
 已完成：
 
-- 插件骨架、侧栏面板、内置目录（26 个 provider，覆盖开发工具、项目管理、数据库、知识检索、办公协作、安全运维、数据分析）、搜索与分类。
+- 插件骨架、侧栏面板、内置目录（27 个 provider，覆盖开发工具、项目管理、数据库、知识检索、办公协作、安全运维、数据分析）、搜索与分类。
 - 目录排序：全部 Tab 按分类块连续排列（分类顺序与 Tab 一致），组内按 provider 的 `order`（缺省 100）再按名称；自定义连接器落在自身分类的内置之后（按导入时间），CLI 卡同样落在自己的分类里。分类 Tab 与搜索只过滤、不重排；分类 Tab 单行排列，超出时横向滚动（滚轮可直接横滑），不再换行；新建对话的浮层另按「可用状态 → 名称」排序。
 - Provider 数据化：新增 provider 只需 `providers/<id>/provider.json`（可选 `icon.svg`），OAuth 也由数据描述驱动，无厂商分支；契约与贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 内置连接器安装/删除、凭据本机存储、重启后恢复、工具数量展示。
@@ -14,7 +14,8 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 - OAuth 型 provider：GitLab / GitLab 自建、Notion、Sentry、Postman、CircleCI、云效、Linear、Neon、Supabase、PostHog、腾讯文档、天眼查、企查查、Firecrawl、Tavily（全部 DCR + PKCE，浏览器授权、自动刷新）。OAuth 元数据发现优先读 401 响应 `WWW-Authenticate` 里的 `resource_metadata`，再兼容 `{origin}/.well-known/oauth-protected-resource{path}` 与 `{resource}/.well-known/oauth-protected-resource` 两种拼法；provider 用 `scopes: []` 表示不请求 scope（PostHog 自助注册不接受指定 scope）。只提供 API Key 的用法可继续走自定义连接器的 `headers`。
 - instance 型 provider 支持预置地址：`instance.presets` 声明一组 `{label, url}` 后，配置弹窗从手填 URL 变为下拉选择（企查查按 10 个数据域切换），`instance.noun` 让按钮与提示改说「数据域」而不是「地址」。
 - 已授权后可直接更新凭据，不必删除重装：token 卡片在「更多」菜单或详情底部提供「更新令牌」，卡片入口弹出独立的更新弹窗，详情入口在其上叠加二级弹窗；空白输入、旧令牌不回显，保存后原地替换。更新期间同样可关闭弹窗，卡片状态显示连接中，结果落回卡片。OAuth 卡片提供「重新授权」，点击后卡片状态立即从对勾切换为 loading，取消或失败保留旧授权。二级弹窗出现时一级弹窗的蒙版让位给二级，只保留最上层一层遮罩，避免背景越叠越暗。
-- 自定义 `mcpServers` JSON 导入：Streamable HTTP（`url` / `headers`）与 stdio（`command` / `args` / `env` / `cwd`）。
+- 用户自带 OAuth 应用：`registration: "user"` 的 provider 首次授权前在面板填写 AppKey/SecretKey，并把面板显示的回调地址配置到厂商控制台；凭据与令牌只保存在本机。
+- 自定义 `mcpServers` JSON 导入：Streamable HTTP（`url` / `headers`）、SSE（`type: "sse"` + `url`）与 stdio（`command` / `args` / `env` / `cwd`）。
 - 自定义连接器与内置目录混排，标「自定义」，支持删除。
 - 私网 / localhost 地址二确认；`serverName` 冲突拒绝；凭据只存宿主侧、API 不回传。
 - 点击卡片只打开详情弹窗（描述、状态、工具、示例）；安装由卡片右侧加号直接触发，或详情里的「安装」按钮。
@@ -48,6 +49,7 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 - Context7：连接后注册 `mcp__context7__query-docs`、`mcp__context7__resolve-library-id`，重启 host 后自动恢复。
 - 自定义 HTTP：导入后连接，工具注册成功；删除已连接连接器会注销工具并删除记录。
 - 自定义 stdio：`npx -y @modelcontextprotocol/server-everything` 连接后注册 22 个工具，重启 host 后恢复。
+- 自定义 SSE：`type: "sse"` 的 mcpServers 条目由内置桥转接；本地假 SSE 服务实测 initialize / tools list / tools call 全部通过。
 - 冲突、私网确认、非法 JSON、删除与面板导入/删除流程均验证通过。
 - 卡片详情与示例：示例行右侧为两个 28px 图标按钮，无文字；悬停 tooltip 分别为「复制」「去试试」。停用 Context7 时 pill「已停用」、去试试 `disabled` 且 opacity 0.4、复制仍可用；恢复后去试试恢复。复制内容与去试试一致：第二条示例的剪贴板 payload 为「使用 Context7：查 Next.js 15 …」。复制失败时图标变警示红并显示「复制失败」（自动化浏览器权限受限）。
 - 卡片/加号：点卡片只打开详情；GitLab 点加号直接安装并自动发起授权，全程不出现详情/安装步骤弹窗，卡片从加号切到「取消授权」，取消后回到「授权」；详情里的「安装」仍保留安装后授权的弹窗路径。
@@ -66,7 +68,7 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 - 侧栏图标：连接器入口改为插头 SVG（3 条 path：两脚、插头体、线缆），与「插件」pinwheel 区分。
 - GitHub PAT：卡片目录为 `auth.type=bearer`；加号/详情安装只写记录并弹出独立的令牌弹窗；空 token 时「连接」禁用。填入假 token 后连接超时并显示凭据错误，未落记录；真实 PAT 已连接并注册 46 个工具。已连接失败时，「更新令牌」打开同一个令牌弹窗。
 - 安装/授权分离（token）：Linear 详情「安装」后卡片变为「未授权」+「授权」+已安装对勾，安装完成即弹出独立的 `Linear API Key` 令牌弹窗，详情本身不含输入框；关闭并刷新后仍是「授权/未授权」，不再显示「安装」。Neon 加号同样直接安装并弹出令牌弹窗；测试记录已删除。
-- 目录：32 张内置卡（26 个 MCP provider + 6 个 CLI），覆盖开发工具 / 项目管理 / 数据库 / 知识检索 / 办公协作 / 安全运维 / 数据分析；Linear 安装步骤显示 `Linear API Key`、创建链接与权限提示，Neon / Supabase 复用同一结构。provider 改为按目录组织，OAuth 走通用元数据 + DCR/静态 clientId。
+- 目录：33 张内置卡（27 个 MCP provider + 6 个 CLI），覆盖开发工具 / 项目管理 / 数据库 / 知识检索 / 办公协作 / 安全运维 / 数据分析；Linear 安装步骤显示 `Linear API Key`、创建链接与权限提示，Neon / Supabase 复用同一结构。provider 改为按目录组织，OAuth 走通用元数据 + DCR/静态 clientId。
 - GitLab.com OAuth：真实授权已完成，GitLab MCP 注册 36 个工具；`POST /api/oauth/start` 完成元数据发现、动态客户端注册并通过系统默认浏览器打开（`opened=true`）；取消授权后流程回到未授权。回调非法 state、provider 错误、非法 redirectUri 均返回 400 与错误页。
 
 ## 结构
@@ -103,11 +105,11 @@ npm run provider:new -- acme --auth bearer --name "Acme"
 npm run check        # typecheck + build + provider/instance 校验与测试
 ```
 
-契约、auth 类型、OAuth 注册方式和 PR 检查清单见 [CONTRIBUTING.md](CONTRIBUTING.md)。内置 provider 只接受数据描述与静态图标，不允许携带可执行代码；本地 stdio / 内网地址继续走「自定义连接器」。
+契约、auth 类型、OAuth 注册方式和 PR 检查清单见 [CONTRIBUTING.md](CONTRIBUTING.md)。内置 provider 只接受数据描述与静态图标，不允许携带可执行代码；本地 stdio / 内网地址继续走「自定义连接器」。`server.transport` 支持 `streamable-http` 与旧版 `sse`（SSE 由插件内置 stdio 桥转接）。
 
 ## 自定义连接器
 
-面板右上角「自定义连接器」接受标准 `mcpServers` JSON，编辑器为 Monaco（行号、JSON 语法高亮、括号匹配与错误提示）；新建时预填一份可编辑的示例模板，支持 Streamable HTTP 与 stdio 的说明放在标题旁问号中：
+面板右上角「自定义连接器」接受标准 `mcpServers` JSON，编辑器为 Monaco（行号、JSON 语法高亮、括号匹配与错误提示）；新建时预填一份可编辑的示例模板，支持 Streamable HTTP、SSE 与 stdio 的说明放在标题旁问号中：
 
 ```json
 {

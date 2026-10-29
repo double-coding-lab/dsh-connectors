@@ -469,11 +469,21 @@ interface OAuthFlowInfo {
   opened: boolean
 }
 
+function oauthRedirectUri(card: ConnectorCard): string {
+  const url = new URL(`${window.location.origin}${ROUTE_PREFIX}/api/oauth/callback`)
+  // 百度等厂商要求回调使用域名，不接受 IP；本机访问时改用 localhost
+  const needsDomain = card.auth.type === 'oauth2' && card.auth.registration === 'user'
+  if (needsDomain && (/^\d{1,3}(\.\d{1,3}){3}$/.test(url.hostname) || url.hostname === '[::1]')) {
+    url.hostname = 'localhost'
+  }
+  return url.toString()
+}
+
 async function authorizeConnector(
   card: ConnectorCard,
   options: { signal?: AbortSignal; onFlow?: (flow: OAuthFlowInfo) => void } = {},
 ): Promise<ConnectionView> {
-  const redirectUri = `${window.location.origin}${ROUTE_PREFIX}/api/oauth/callback`
+  const redirectUri = oauthRedirectUri(card)
   let response: OAuthStartPayload
   try {
     response = await request<OAuthStartPayload>(`${ROUTE_PREFIX}/api/oauth/start`, {
@@ -535,6 +545,16 @@ async function authorizeConnector(
       throw new ApiError('oauth_timeout', '授权超时，请重试')
     }
   }
+}
+
+async function saveOAuthClient(card: ConnectorCard, clientId: string, clientSecret: string): Promise<ConnectionView> {
+  const response = await request<ConnectResponse>(`${ROUTE_PREFIX}/api/connections/${encodeURIComponent(card.id)}/oauth-client`, {
+    method: 'POST',
+    body: JSON.stringify({ clientId, clientSecret }),
+  })
+  const connection = response.value?.connection
+  if (connection === undefined) throw new ApiError('invalid_response', '保存应用凭据失败：宿主没有返回连接')
+  return connection
 }
 
 interface DockSnapshot {
@@ -1132,6 +1152,11 @@ function ConnectorPopover(): JSX.Element | null {
         <IconSearch size={13} />
         <input
           autoFocus
+          name="dsh-connector-dock-search"
+          autoComplete="off"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-bwignore="true"
           placeholder="搜索连接器"
           value={state.query}
           onChange={event => updateDock({ query: event.target.value })}
@@ -1167,6 +1192,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
   const [connections, setConnections] = useState<Record<string, ConnectionView>>({})
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
   const [category, setCategory] = useState('全部')
   const [loading, setLoading] = useState(false)
   const [dialogCard, setDialogCard] = useState<ConnectorCard | null>(null)
@@ -1175,6 +1201,9 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
   const [credentialMode, setCredentialMode] = useState<'install' | 'update'>('update')
   const [credentialSaving, setCredentialSaving] = useState<string | null>(null)
   const [credentialError, setCredentialError] = useState<{ cardId: string; message: string } | null>(null)
+  const [oauthAppCard, setOauthAppCard] = useState<ConnectorCard | null>(null)
+  const [oauthAppSaving, setOauthAppSaving] = useState(false)
+  const [oauthAppError, setOauthAppError] = useState<string | null>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
   const [connectingId, setConnectingId] = useState<string | null>(null)
@@ -1603,6 +1632,48 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
     notifyConnectionsChanged()
   }
 
+  const isUserOAuthCard = (card: ConnectorCard): boolean =>
+    card.auth.type === 'oauth2' && card.auth.registration === 'user'
+
+  const startOAuthFlow = (
+    card: ConnectorCard,
+    installFirst: boolean,
+    surface: 'dialog' | 'page' = 'dialog',
+    force = false,
+  ): void => {
+    if (isUserOAuthCard(card) && connections[card.id]?.oauthClientReady !== true) {
+      clearCardError(card.id)
+      if (surface === 'dialog') setDialogError(null)
+      setOauthAppError(null)
+      setOauthAppCard(card)
+      return
+    }
+    runOAuth(card, installFirst, surface, force)
+  }
+
+  const submitOAuthApp = (clientId: string, clientSecret: string): void => {
+    const card = oauthAppCard
+    if (card === null || oauthAppSaving) return
+    setOauthAppSaving(true)
+    setOauthAppError(null)
+    void (async () => {
+      try {
+        if (connections[card.id] === undefined) {
+          const installed = await installConnector(card)
+          applyConnection(installed)
+        }
+        const updated = await saveOAuthClient(card, clientId, clientSecret)
+        applyConnection(updated)
+        setOauthAppCard(null)
+        runOAuth(card, false, dialogCard?.id === card.id ? 'dialog' : 'page', false, updated)
+      } catch (cause) {
+        setOauthAppError(cause instanceof Error ? cause.message : String(cause))
+      } finally {
+        setOauthAppSaving(false)
+      }
+    })()
+  }
+
   const connect = (card: ConnectorCard, token?: string, surface: 'dialog' | 'page' = 'dialog'): Promise<boolean> => {
     setPending(card.id)
     setConnectingId(card.id)
@@ -1832,7 +1903,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
         return
       }
       if (isOAuthCard(card)) {
-        runOAuth(card, true, 'page')
+        startOAuthFlow(card, true, 'page')
         return
       }
       if (isTokenCard(card)) {
@@ -1849,7 +1920,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
         return
       }
       if (isOAuthCard(card)) {
-        runOAuth(card, false, 'page')
+        startOAuthFlow(card, false, 'page')
         return
       }
       void connect(card, undefined, 'page')
@@ -1862,7 +1933,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
         return
       }
       if (isOAuthCard(card)) {
-        runOAuth(card, false, 'page', true)
+        startOAuthFlow(card, false, 'page', true)
         return
       }
       if (card.instance !== undefined) {
@@ -2124,7 +2195,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
         return
       }
       if (isOAuthCard(card)) {
-        runOAuth(card, true, 'page')
+        startOAuthFlow(card, true, 'page')
         return
       }
       if (isTokenCard(card)) {
@@ -2143,7 +2214,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
         return
       }
       if (isOAuthCard(card)) {
-        runOAuth(card, false, 'page')
+        startOAuthFlow(card, false, 'page')
         return
       }
       if (isTokenCard(card)) {
@@ -2157,7 +2228,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
       ? () => openCredentialDialog(card)
       : undefined}
     onReauthorize={isOAuthCard(card) && connections[card.id]?.authorized === true
-      ? () => runOAuth(card, false, 'page', true)
+      ? () => startOAuthFlow(card, false, 'page', true)
       : undefined}
     onReconfigureInstance={card.instance !== undefined && connections[card.id]?.instanceReady === true
       ? () => openInstanceDialog(card, 'replace')
@@ -2251,10 +2322,31 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
         <label className="dshc-search">
           <IconSearch size={14} />
           <input
+            ref={searchRef}
+            name="dsh-connector-search"
+            autoComplete="off"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
             placeholder="搜索连接器"
             value={query}
             onChange={event => setQuery(event.target.value)}
           />
+          {query !== '' && (
+            <button
+              type="button"
+              className="dshc-search-clear"
+              aria-label="清空搜索"
+              title="清空搜索"
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => {
+                setQuery('')
+                searchRef.current?.focus()
+              }}
+            >
+              <IconClose size={12} />
+            </button>
+          )}
         </label>
 
         {error !== null && <div className="dshc-error">{error}</div>}
@@ -2295,7 +2387,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
               void connect(dialogCard, undefined, 'dialog')
               return
             }
-            runOAuth(dialogCard, true, 'dialog')
+            startOAuthFlow(dialogCard, true, 'dialog')
           }}
           onCancelInstall={() => {
             setDialogInstall(false)
@@ -2304,8 +2396,8 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
           onConnect={token => connect(dialogCard, token, 'dialog')}
           onInstallOAuth={() => runOAuth(dialogCard, true)}
           onConfigureInstance={() => openInstanceDialog(dialogCard, 'config', true)}
-          onAuthorize={() => runOAuth(dialogCard, false)}
-          onReauthorize={() => runOAuth(dialogCard, false, 'dialog', true)}
+          onAuthorize={() => startOAuthFlow(dialogCard, false)}
+          onReauthorize={() => startOAuthFlow(dialogCard, false, 'dialog', true)}
           onReconfigureInstance={dialogCard.instance !== undefined && connections[dialogCard.id]?.instanceReady === true
             ? () => openInstanceDialog(dialogCard, 'replace', true)
             : undefined}
@@ -2341,6 +2433,19 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
             setCredentialError(null)
           }}
           onSubmit={token => saveCredential(credentialCard, token)}
+        />
+      )}
+
+      {oauthAppCard !== null && (
+        <OAuthAppDialog
+          card={oauthAppCard}
+          saving={oauthAppSaving}
+          error={oauthAppError}
+          onClose={() => {
+            setOauthAppCard(null)
+            setOauthAppError(null)
+          }}
+          onSubmit={submitOAuthApp}
         />
       )}
 
@@ -4296,8 +4401,12 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                   <input
                     ref={toolSearchRef}
                     className="dshc-tools-search"
+                    name="dsh-connector-tool-search"
                     type="text"
                     autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
                     spellCheck={false}
                     aria-label="搜索工具"
                     placeholder="搜索工具"
@@ -4827,9 +4936,13 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
             <span className="dshc-field-control">
               <input
                 id="dshc-credential-token"
+                name="dsh-connector-token"
                 type={tokenVisible ? 'text' : 'password'}
                 autoFocus
-                autoComplete="off"
+                autoComplete="new-password"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
                 disabled={saving}
                 placeholder={mode === 'install' ? '粘贴令牌' : '粘贴新令牌'}
                 value={token}
@@ -4879,6 +4992,159 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
             >
               {saving && <Spinner />}
               {saving ? (mode === 'install' ? '连接中…' : '保存中…') : submitLabel}
+            </button>
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface OAuthAppDialogProps {
+  card: ConnectorCard
+  saving: boolean
+  error: string | null
+  onClose: () => void
+  onSubmit: (clientId: string, clientSecret: string) => void
+}
+
+function OAuthAppDialog({ card, saving, error, onClose, onSubmit }: OAuthAppDialogProps): JSX.Element {
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [secretVisible, setSecretVisible] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const help = card.auth.type === 'oauth2' ? card.auth.help : undefined
+  const callback = oauthRedirectUri(card)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const submit = (): void => {
+    if (saving || clientId.trim() === '' || clientSecret.trim() === '') return
+    onSubmit(clientId.trim(), clientSecret.trim())
+  }
+
+  const copyCallback = (): void => {
+    void navigator.clipboard.writeText(callback).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    }).catch(() => undefined)
+  }
+
+  return (
+    <div
+      className="dshc-overlay"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="dshc-dialog dshc-dialog-credential" role="dialog" aria-modal="true" aria-label={`配置 ${card.name} 应用`}>
+        <div className="dshc-dialog-head">
+          <span className="dshc-dialog-avatar"><ConnectorLogo card={card} size={28} /></span>
+          <div className="dshc-dialog-title">
+            <h2>配置 OAuth 应用</h2>
+            <span>{card.name}</span>
+          </div>
+          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+            <IconClose size={16} />
+          </button>
+        </div>
+        <div className="dshc-dialog-content">
+          <p className="dshc-dialog-hint">
+            在{card.vendor ?? card.name}开放平台创建应用，把回调地址填到应用的安全设置里，再填入应用凭据；凭据只保存在本机。
+          </p>
+          <div className="dshc-field">
+            <label htmlFor="dshc-oauth-callback">回调地址</label>
+            <span className="dshc-field-control">
+              <input id="dshc-oauth-callback" readOnly value={callback} onFocus={event => event.currentTarget.select()} />
+              <button type="button" className="dshc-field-copy" onClick={copyCallback}>
+                {copied ? '已复制' : '复制'}
+              </button>
+            </span>
+          </div>
+          <div className="dshc-field">
+            <label htmlFor="dshc-oauth-client-id">AppKey</label>
+            <span className="dshc-field-control">
+              <input
+                id="dshc-oauth-client-id"
+                name="dsh-oauth-client-id"
+                type="text"
+                autoFocus
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                spellCheck={false}
+                disabled={saving}
+                placeholder="应用 AppKey / Client ID"
+                value={clientId}
+                onChange={event => setClientId(event.target.value)}
+              />
+            </span>
+          </div>
+          <div className="dshc-field">
+            <label htmlFor="dshc-oauth-client-secret">SecretKey</label>
+            <span className="dshc-field-control">
+              <input
+                id="dshc-oauth-client-secret"
+                name="dsh-oauth-client-secret"
+                type={secretVisible ? 'text' : 'password'}
+                autoComplete="new-password"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                disabled={saving}
+                placeholder="应用 SecretKey / Client Secret"
+                value={clientSecret}
+                onChange={event => setClientSecret(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    submit()
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="dshc-field-reveal"
+                aria-label={secretVisible ? '隐藏 SecretKey' : '显示 SecretKey'}
+                title={secretVisible ? '隐藏 SecretKey' : '显示 SecretKey'}
+                aria-pressed={secretVisible}
+                disabled={saving}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => setSecretVisible(current => !current)}
+              >
+                {secretVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+              </button>
+            </span>
+          </div>
+          {help !== undefined && (
+            <p className="dshc-dialog-hint">
+              <a className="dshc-link" href={help.url} target="_blank" rel="noreferrer">{help.label}</a>
+              {help.hint !== undefined && <span>　{help.hint}</span>}
+            </p>
+          )}
+          {error !== null && <p className="dshc-dialog-error">{error}</p>}
+          {saving && <p className="dshc-dialog-hint">保存后会打开浏览器完成授权。</p>}
+        </div>
+        <div className="dshc-dialog-actions">
+          <span className="dshc-dialog-actions-right">
+            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
+              {saving ? '关闭' : '取消'}
+            </button>
+            <button
+              type="button"
+              className="dshc-btn dshc-btn-md dshc-btn-primary"
+              disabled={saving || clientId.trim() === '' || clientSecret.trim() === ''}
+              onClick={submit}
+            >
+              {saving && <Spinner />}
+              {saving ? '保存中…' : '保存并授权'}
             </button>
           </span>
         </div>
@@ -5342,7 +5608,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
           {helpTip.kind === 'import' ? (
             <>
               <strong>自定义连接器</strong>
-              <span>粘贴 mcpServers JSON，支持 Streamable HTTP 与 stdio 两类 MCP Server。</span>
+              <span>粘贴 mcpServers JSON，支持 Streamable HTTP、SSE 与 stdio 三类 MCP Server。</span>
             </>
           ) : (
             <>
@@ -5454,6 +5720,8 @@ function installStyles(): void {
 .dshc-search:focus-within{border-color:var(--dsw-alias-state-business-primary)}
 .dshc-search input{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px}
 .dshc-search input::placeholder{color:var(--dsw-alias-label-caption)}
+.dshc-search-clear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.dshc-search-clear:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dshc-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:36px;padding:0 14px;border:none;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;white-space:nowrap;text-decoration:none;cursor:pointer}
 .dshc-btn:disabled{opacity:.4;cursor:not-allowed}
 .dshc-btn-md{height:40px}
@@ -5616,6 +5884,8 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-field-reveal{position:absolute;top:50%;right:6px;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
 .dshc-field-reveal:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
 .dshc-field-reveal:focus-visible{outline:none;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dshc-field-copy{position:absolute;top:50%;right:6px;transform:translateY(-50%);height:28px;padding:0 10px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-state-business-primary);font:inherit;font-size:12px;cursor:pointer}
+.dshc-field-copy:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dshc-field input::placeholder{color:var(--dsw-alias-label-caption)}
 .dshc-field input:focus-visible{border-color:var(--dsw-alias-state-business-primary)}
 .dshc-field select{box-sizing:border-box;width:100%;height:40px;padding:0 38px 0 14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;outline:none;appearance:none;cursor:pointer}

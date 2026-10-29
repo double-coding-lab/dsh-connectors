@@ -52,6 +52,41 @@ const [stdioSeed] = parseMcpServers(JSON.stringify({
 assert.deepEqual(stdioSeed?.examples, ['列出可用工具'])
 assert.equal(stdioSeed?.transport, 'stdio')
 
+const [sseSeed] = parseMcpServers(JSON.stringify({
+  mcpServers: {
+    legacy: {
+      type: 'sse',
+      url: 'https://example.com/sse',
+      headers: { Authorization: 'Bearer x' },
+    },
+  },
+}))
+assert.equal(sseSeed?.transport, 'sse')
+assert.equal(sseSeed?.url, 'https://example.com/sse')
+
+const [typedHttpSeed] = parseMcpServers(JSON.stringify({
+  mcpServers: { modern: { type: 'streamable-http', url: 'https://example.com/mcp' } },
+}))
+assert.equal(typedHttpSeed?.transport, 'streamable-http')
+
+const [plainUrlSeed] = parseMcpServers(JSON.stringify({
+  mcpServers: { plain: { url: 'https://example.com/mcp' } },
+}))
+assert.equal(plainUrlSeed?.transport, 'streamable-http')
+
+assert.throws(
+  () => parseMcpServers(JSON.stringify({ mcpServers: { bad: { type: 'sse', command: 'npx' } } })),
+  /只能声明 stdio/,
+)
+assert.throws(
+  () => parseMcpServers(JSON.stringify({ mcpServers: { bad: { type: 'stdio', url: 'https://example.com/sse' } } })),
+  /不能声明 stdio/,
+)
+assert.throws(
+  () => parseMcpServers(JSON.stringify({ mcpServers: { bad: { type: 'websocket', url: 'https://example.com/ws' } } })),
+  /不受支持/,
+)
+
 const [scopedSeed] = parseMcpServers(JSON.stringify({
   mcpServers: {
     '@negokaz/excel-mcp-server': {

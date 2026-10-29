@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 
-import { buildAuthorizeUrl, fetchOAuthMetadata, registerOAuthClient } from '../dist/host/oauth.js'
+import { buildAuthorizeUrl, exchangeCode, fetchOAuthMetadata, refreshAccessToken, registerOAuthClient } from '../dist/host/oauth.js'
 
 function listen(handler) {
   return new Promise(resolve => {
@@ -160,4 +160,63 @@ const authorizationServer = origin => ({
   console.log('✓ 空 scopes 时不带 scope（授权与注册）')
 }
 
-console.log('oauth discovery tests: 6 passed')
+// 7. 显式端点 + GET 令牌 + authorizeParams（百度网盘模式）
+{
+  const tokenQueries = []
+  const { server, origin } = await listen((req, res) => {
+    const url = new URL(req.url, origin)
+    if (url.pathname === '/token') {
+      tokenQueries.push(url.searchParams)
+      res.writeHead(200, { 'content-type': 'application/json' })
+      const grant = url.searchParams.get('grant_type')
+      res.end(JSON.stringify(grant === 'refresh_token'
+        ? { access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 2592000, scope: 'basic netdisk' }
+        : { access_token: 'access-1', refresh_token: 'refresh-1', expires_in: 2592000, scope: 'basic netdisk' }))
+      return
+    }
+    res.writeHead(404)
+    res.end()
+  })
+  const metadata = {
+    authorizationEndpoint: `${origin}/authorize`,
+    tokenEndpoint: `${origin}/token`,
+    scope: 'basic,netdisk',
+    authorizeParams: { qrcode: '1' },
+  }
+  const authorizeUrl = buildAuthorizeUrl(metadata, {
+    clientId: 'app-key',
+    redirectUri: `${origin}/callback`,
+    state: 'state-baidu',
+  })
+  const url = new URL(authorizeUrl)
+  assert.equal(url.searchParams.get('qrcode'), '1')
+  assert.equal(url.searchParams.get('response_type'), 'code')
+  assert.equal(url.searchParams.get('scope'), 'basic,netdisk')
+  assert.equal(url.searchParams.has('code_challenge'), false, '显式关闭 PKCE 时不应带 challenge')
+
+  const tokens = await exchangeCode(metadata.tokenEndpoint, {
+    code: 'code-1',
+    redirectUri: `${origin}/callback`,
+    clientId: 'app-key',
+    clientSecret: 'app-secret',
+    tokenMethod: 'GET',
+  })
+  assert.equal(tokens.accessToken, 'access-1')
+  assert.equal(tokens.refreshToken, 'refresh-1')
+  const first = tokenQueries[0]
+  assert.equal(first.get('client_secret'), 'app-secret')
+  assert.equal(first.has('code_verifier'), false)
+
+  const refreshed = await refreshAccessToken(metadata.tokenEndpoint, {
+    refreshToken: 'refresh-1',
+    clientId: 'app-key',
+    clientSecret: 'app-secret',
+    tokenMethod: 'GET',
+  })
+  assert.equal(refreshed.accessToken, 'new-access')
+  assert.equal(refreshed.refreshToken, 'new-refresh', 'refresh_token 需要轮换')
+  server.close()
+  console.log('✓ 显式端点 + GET 令牌 + qrcode 参数')
+}
+
+console.log('oauth discovery tests: 7 passed')
