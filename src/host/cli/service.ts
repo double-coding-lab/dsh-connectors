@@ -277,7 +277,7 @@ export class CliConnectorService {
     const table = await this.table()
     const previous = table.get(adapter.id)
     const skills = this.scanSkills(adapter)
-    const binPath = await resolveBinary(adapter.bin, this.exec)
+    const binPath = await resolveBinary(adapter.bin, this.exec, adapter.binCandidates ?? [])
     if (binPath === null) {
       const view: CliConnectorView = {
         id: adapter.id,
@@ -481,7 +481,7 @@ export class CliConnectorService {
     this.assertIdle(adapter.id)
     const current = await this.view(adapter.id)
     if (!current.installed) throw new ConnectError('cli_not_installed', '请先安装 CLI')
-    const binPath = await resolveBinary(adapter.bin, this.exec)
+    const binPath = await resolveBinary(adapter.bin, this.exec, adapter.binCandidates ?? [])
     if (binPath === null) throw new ConnectError('cli_not_installed', 'CLI 可执行文件未找到，请重新安装')
     const job: CliJob = {
       connectorId: adapter.id,
@@ -505,7 +505,7 @@ export class CliConnectorService {
         }
         job.phase = 'logging_in'
         job.stage = '登录'
-        const logged = await this.runLoginCommand(job, adapter, binPath, adapter.auth.login.args, LOGIN_TIMEOUT_MS)
+        const logged = await this.runLoginCommand(job, adapter, binPath, adapter.auth.login.args, adapter.loginTimeoutMs ?? LOGIN_TIMEOUT_MS)
         if (job.cancel) return
         const view = await this.refresh(adapter.id).catch(() => undefined)
         if (view?.authenticated === true) {
@@ -568,7 +568,7 @@ export class CliConnectorService {
     this.assertIdle(adapter.id)
     const logout = adapter.auth.logout
     if (logout !== undefined) {
-      const binPath = await resolveBinary(adapter.bin, this.exec)
+      const binPath = await resolveBinary(adapter.bin, this.exec, adapter.binCandidates ?? [])
       if (binPath === null) throw new ConnectError('cli_not_installed', 'CLI 可执行文件未找到')
       const env = commandEnv(adapter)
       const result = await this.exec(binPath, logout.args, {
@@ -611,7 +611,7 @@ export class CliConnectorService {
     this.jobs.set(adapter.id, job)
     void (async () => {
       try {
-        const binPath = await resolveBinary(adapter.bin, this.exec)
+        const binPath = await resolveBinary(adapter.bin, this.exec, adapter.binCandidates ?? [])
         if (binPath !== null) {
           job.stage = '退出登录'
           const env = commandEnv(adapter)

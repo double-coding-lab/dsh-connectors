@@ -14,7 +14,7 @@ const MIME = {
   jpeg: 'image/jpeg',
   ico: 'image/x-icon',
 }
-const ids = ['dingtalk', 'feishu', 'tmeet', 'wecom']
+const ids = ['dingtalk', 'feishu', 'tmeet', 'wecom', 'hf']
 const icons = {}
 
 for (const id of ids) {

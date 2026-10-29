@@ -149,7 +149,7 @@ export interface HealthPayload {
 
 export const ROUTE_PREFIX = '/dsh-connectors'
 
-export type CliConnectorId = 'dingtalk' | 'feishu' | 'tmeet' | 'wecom'
+export type CliConnectorId = 'dingtalk' | 'feishu' | 'tmeet' | 'wecom' | 'hf'
 
 export type CliPhase = 'idle' | 'installing' | 'updating' | 'configuring' | 'logging_in' | 'uninstalling' | 'error'
 

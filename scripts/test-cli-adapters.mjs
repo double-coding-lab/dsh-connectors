@@ -8,6 +8,7 @@ const dingtalk = CLI_ADAPTERS.dingtalk
 const feishu = CLI_ADAPTERS.feishu
 const tmeet = CLI_ADAPTERS.tmeet
 const wecom = CLI_ADAPTERS.wecom
+const hf = CLI_ADAPTERS.hf
 
 assert.ok(dingtalk.install.some(step => step.args.includes('dingtalk-workspace-cli')), 'dingtalk install package')
 assert.ok(dingtalk.uninstall.some(step => step.args.includes('uninstall') && step.args.includes('dingtalk-workspace-cli')), 'dingtalk uninstall package')
@@ -168,5 +169,38 @@ assert.equal(compareVersions('1.2.1', '1.2.1'), 0)
 assert.equal(compareVersions('v1.1.0', '1.2.1'), -1)
 assert.equal(compareVersions('1.2.1-beta.2', '1.2.1'), 0)
 assert.equal(wecom.minVersion, '1.2.1')
+
+assert.ok(hf.install.some(step => step.command === 'uv' && step.args.includes('huggingface_hub')), 'hf installs via uv tool')
+assert.ok(hf.install.some(step => step.args.includes('skills') && step.args.includes('-g')), 'hf installs the hf-cli skill')
+assert.ok(hf.auth.login.args.includes('--format') && hf.auth.login.args.includes('agent'), 'hf login prints agent instructions')
+assert.ok(hf.auth.status.args.includes('json'), 'hf status is json')
+assert.equal(hf.loginTimeoutMs, 300000)
+assert.equal(hf.minVersion, undefined)
+
+const hfHelp = [
+  'Usage: hf [OPTIONS] [COMMAND] [ARGS]...',
+  '',
+  'Main commands:',
+  '  auth         Manage authentication (login, logout, etc.).',
+  '  download     Download files from the Hub.',
+  '  models       Interact with models on the Hub.',
+  '  skills       Manage skills for AI assistants.',
+  '',
+  'Help commands:',
+  '  version  Print information about the hf version.',
+].join('\n')
+const hfCapabilities = hf.capabilities.parse(hfHelp)
+assert.equal(hfCapabilities.kind, 'groups')
+assert.equal(hfCapabilities.total, 2)
+assert.ok(!hfCapabilities.items.some(item => item.name === 'auth' || item.name === 'skills'))
+assert.ok(hfCapabilities.items.some(item => item.name === 'download' && item.description.startsWith('Download files')))
+
+assert.equal(hf.parseStatus('Error: Not logged in. Run `hf auth login` first.').authenticated, false)
+const hfStatus = hf.parseStatus(JSON.stringify({ name: '李国川', email: 'ligc@example.com' }))
+assert.equal(hfStatus.authenticated, true)
+assert.equal(hfStatus.account?.name, '李国川')
+const hfHint = hf.parseLoginHint('Ask the user to open https://hf.co/oauth/device in a browser and enter the code KOCX-2X6I.')
+assert.equal(hfHint.link, 'https://hf.co/oauth/device')
+assert.equal(hfHint.code, 'KOCX-2X6I')
 
 console.log('cli adapter tests: passed')

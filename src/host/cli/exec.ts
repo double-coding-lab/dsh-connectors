@@ -145,7 +145,14 @@ export function spawnStreaming(
   return { child, done }
 }
 
-export async function resolveBinary(name: string, exec: ExecFn = defaultExec): Promise<string | null> {
+export async function resolveBinary(
+  name: string,
+  exec: ExecFn = defaultExec,
+  preferred: string[] = [],
+): Promise<string | null> {
+  for (const candidate of preferred) {
+    if (existsSync(candidate)) return candidate
+  }
   const locator = process.platform === 'win32' ? 'where' : 'which'
   const result = await exec(locator, [name], { timeoutMs: 8_000, acceptFailure: true })
   const lines = result.stdout

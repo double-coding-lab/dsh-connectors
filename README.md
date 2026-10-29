@@ -6,11 +6,11 @@ DeepSeek Harness 的 MCP 连接器插件。提供独立的侧栏面板：浏览�
 
 已完成：
 
-- 插件骨架、侧栏面板、内置目录（25 个 provider，覆盖开发工具、项目管理、数据库、知识检索、办公协作、安全运维、数据分析）、搜索与分类。
+- 插件骨架、侧栏面板、内置目录（24 个 provider，覆盖开发工具、项目管理、数据库、知识检索、办公协作、安全运维、数据分析）、搜索与分类。
 - 目录排序：全部 Tab 按分类块连续排列（分类顺序与 Tab 一致），组内按 provider 的 `order`（缺省 100）再按名称；自定义连接器落在自身分类的内置之后（按导入时间），CLI 卡同样落在自己的分类里。分类 Tab 与搜索只过滤、不重排；分类 Tab 单行排列，超出时横向滚动（滚轮可直接横滑），不再换行；新建对话的浮层另按「可用状态 → 名称」排序。
 - Provider 数据化：新增 provider 只需 `providers/<id>/provider.json`（可选 `icon.svg`），OAuth 也由数据描述驱动，无厂商分支；契约与贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 内置连接器安装/删除、凭据本机存储、重启后恢复、工具数量展示。
-- 内置 token 型 provider：Hugging Face、Grafana、Sourcegraph、Gitee、腾讯元宝搜索；安装只写记录，随后在独立的令牌弹窗输入 token，详情面板只保留提示与「授权」按钮，不内联输入框；关闭弹窗后卡片保留「授权」+ 已安装对勾。令牌输入框默认隐藏内容，右侧眼睛按钮可切换明文/密文，切换不改变已输入内容。点「连接」后弹窗可随时关闭，连接继续在后台执行，卡片按钮显示「连接中…」；成功或失败结果落回卡片，失败时卡片显示错误并可重新授权。
+- 内置 token 型 provider：Grafana、Sourcegraph、Gitee、腾讯元宝搜索；安装只写记录，随后在独立的令牌弹窗输入 token，详情面板只保留提示与「授权」按钮，不内联输入框；关闭弹窗后卡片保留「授权」+ 已安装对勾。令牌输入框默认隐藏内容，右侧眼睛按钮可切换明文/密文，切换不改变已输入内容。点「连接」后弹窗可随时关闭，连接继续在后台执行，卡片按钮显示「连接中…」；成功或失败结果落回卡片，失败时卡片显示错误并可重新授权。
 - OAuth 型 provider：GitLab / GitLab 自建、Notion、Sentry、Postman、CircleCI、云效、Linear、Neon、Supabase、PostHog、腾讯文档、天眼查、企查查（全部 DCR + PKCE，浏览器授权、自动刷新）。OAuth 元数据发现优先读 401 响应 `WWW-Authenticate` 里的 `resource_metadata`，再兼容 `{origin}/.well-known/oauth-protected-resource{path}` 与 `{resource}/.well-known/oauth-protected-resource` 两种拼法；provider 用 `scopes: []` 表示不请求 scope（PostHog 自助注册不接受指定 scope）。只提供 API Key 的用法可继续走自定义连接器的 `headers`。
 - instance 型 provider 支持预置地址：`instance.presets` 声明一组 `{label, url}` 后，配置弹窗从手填 URL 变为下拉选择（企查查按 10 个数据域切换），`instance.noun` 让按钮与提示改说「数据域」而不是「地址」。
 - 已授权后可直接更新凭据，不必删除重装：token 卡片在「更多」菜单或详情底部提供「更新令牌」，卡片入口弹出独立的更新弹窗，详情入口在其上叠加二级弹窗；空白输入、旧令牌不回显，保存后原地替换。更新期间同样可关闭弹窗，卡片状态显示连接中，结果落回卡片。OAuth 卡片提供「重新授权」，点击后卡片状态立即从对勾切换为 loading，取消或失败保留旧授权。二级弹窗出现时一级弹窗的蒙版让位给二级，只保留最上层一层遮罩，避免背景越叠越暗。
@@ -160,7 +160,7 @@ npm run check        # typecheck + build + provider/instance 校验与测试
 ## 通用服务地址（instance）
 
 - 内置 provider 可声明 `instance`：用户填写**完整的 MCP 地址**，`auth` 支持 `none / bearer / header / oauth2`，适用于自建 GitLab、高德 `?key=` 地址等。
-- 钉钉、飞书、腾讯会议、企业微信不使用 MCP：官方推荐 CLI + Skills（`dws` / `lark-cli` / `tmeet` / `wecom-cli`）；有真实 MCP 地址的场景请用自定义连接器导入。
+- 钉钉、飞书、腾讯会议、企业微信、Hugging Face 不使用 MCP：官方推荐 CLI + Skills（`dws` / `lark-cli` / `tmeet` / `wecom-cli` / `hf`）；有真实 MCP 地址的场景请用自定义连接器导入。
 - 地址支持 `https`、`http` 与内网 IP，允许 query；禁止账号密码与锚点。地址按输入保存，不再自动追加路径。
 - 安装时先写一条无 URL 记录，并打开独立的地址弹窗；详情面板只显示提示与「配置」按钮，不再内联输入地址。`none` 保存后直接连接，`bearer/header` 保存后打开令牌弹窗，`oauth2` 保存后发起授权。
 - provider 可通过 `instance.help` 声明官方指引链接（高德接入指引、GitLab MCP 文档），地址弹窗会显示为可点击链接，和令牌弹窗的「创建 Token」链接一致。
@@ -169,8 +169,8 @@ npm run check        # typecheck + build + provider/instance 校验与测试
 
 ## CLI 连接器（钉钉 / 飞书）
 
-- 钉钉、飞书、腾讯会议、企业微信不再走 MCP。官方推荐 CLI + Agent Skills：钉钉 `dws`（`dingtalk-workspace-cli`）、飞书 `lark-cli`（`@larksuite/cli`）、腾讯会议 `tmeet`（`@tencentcloud/tmeet`）、企业微信 `wecom-cli`（`@wecom/cli`）。企业微信登录走扫码页，扫码会自动创建并绑定机器人；CLI 没有 logout 子命令，解绑通过删除 `~/.config/wecom` 下的本地凭据实现。
-- 钉钉、飞书、腾讯会议、企业微信 CLI 卡与 MCP 卡混排在连接器目录，复用同一套分类 Tab、搜索、卡片样式与分类分组；不再设置 MCP/CLI 顶部切换。
+- 钉钉、飞书、腾讯会议、企业微信、Hugging Face 不再走 MCP。官方推荐 CLI + Agent Skills：钉钉 `dws`、飞书 `lark-cli`、腾讯会议 `tmeet`、企业微信 `wecom-cli`、Hugging Face `hf`（`uv tool install huggingface_hub` + `hf skills add -g`，`hf auth login` 走浏览器设备码并自动刷新 token）。企业微信登录走扫码页，扫码会自动创建并绑定机器人；CLI 没有 logout 子命令，解绑通过删除 `~/.config/wecom` 下的本地凭据实现。
+- 钉钉、飞书、腾讯会议、企业微信、Hugging Face CLI 卡与 MCP 卡混排在连接器目录，复用同一套分类 Tab、搜索、卡片样式与分类分组；不再设置 MCP/CLI 顶部切换。
 - CLI 支持「更新 CLI」：更多菜单里的更新会原地执行 `npm install -g <pkg>@latest` 并重新拉取 Skills，不清除登录态；进度弹窗可关闭、后台继续。adapter 可声明 `minVersion`（企业微信要求 ≥1.2.1），版本低于要求时详情顶部给出更新提示。
 - 卡片与 MCP 一致：未安装显示加号「安装」，已安装未登录显示「登录」+ 已安装勾选；已登录显示状态勾选、更多菜单与开关。更多菜单包含「去试试 / 重新登录 / 解绑」。
 - 开关只控制该 CLI 是否出现在 composer 图标条、浮层与「去试试」入口，不卸载 CLI/Skills。

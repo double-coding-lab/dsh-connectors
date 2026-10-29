@@ -1,8 +1,11 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 import type { CliCapabilitiesView } from '../../shared/types.js'
 
 import { resolveNpmCommand, resolveNpxCommand } from './exec.js'
 
-export type CliConnectorId = 'dingtalk' | 'feishu' | 'tmeet' | 'wecom'
+export type CliConnectorId = 'dingtalk' | 'feishu' | 'tmeet' | 'wecom' | 'hf'
 
 export interface CliAuthStatus {
   authenticated: boolean
@@ -43,9 +46,13 @@ export interface CliAdapter {
   examples: string[]
   docsUrl: string
   bin: string
+  /** 优先使用的可执行文件路径（例如 uv 装到 ~/.local/bin，而 PATH 上可能有旧版） */
+  binCandidates?: string[]
   versionArgs: string[]
   /** 官方要求的最低版本；低于时界面提示更新 */
   minVersion?: string
+  /** 登录等待上限，缺省 120s；个别 CLI 的设备码有效期更长 */
+  loginTimeoutMs?: number
   capabilities?: CliCapabilitySpec
   unsetEnv?: string[]
   install: CliInstallStep[]
@@ -157,12 +164,15 @@ function textStatus(raw: string): CliAuthStatus {
 
 function textLoginHint(raw: string): CliLoginHint {
   const link = firstUrl(raw)
-  if (link !== undefined) return { link }
-  const codes = [...raw.matchAll(DEVICE_CODE_PATTERN)]
+  const labelled = /(?:code|代码|设备码|verification)[^\w]{0,8}([A-Z0-9]{4,8}(?:-[A-Z0-9]{4,8})?)/i.exec(raw)?.[1]
+  const candidates = [...raw.matchAll(DEVICE_CODE_PATTERN)]
     .map(match => match[1])
     .filter((code): code is string => code !== undefined && !/^(HTTP|HTTPS|JSON|TRUE|FALSE)$/i.test(code))
-  const code = codes[codes.length - 1]
-  return code === undefined ? {} : { code }
+  const code = labelled ?? candidates[candidates.length - 1]
+  return {
+    ...(link === undefined ? {} : { link }),
+    ...(code === undefined ? {} : { code }),
+  }
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> | undefined {
@@ -300,6 +310,60 @@ function parseWecomStatus(raw: string): CliAuthStatus {
       : { account: { ...(name === undefined ? {} : { name }), ...(org === undefined ? {} : { org }) } }),
   }
 }
+
+
+const HF_SKIP_COMMANDS = new Set(['auth', 'skills'])
+
+function parseHfCapabilities(raw: string): CliCapabilitiesView {
+  const lines = raw.split(/\r?\n/)
+  const start = lines.findIndex(line => line.trim() === 'Main commands:')
+  const items: CliCapabilitiesView['items'] = []
+  if (start >= 0) {
+    for (const line of lines.slice(start + 1)) {
+      const trimmed = line.trim()
+      if (trimmed === '' || trimmed.startsWith('Help commands:')) break
+      const match = /^([a-z][a-z0-9-]*)\s{2,}(.+)$/.exec(trimmed)
+      if (match === null) continue
+      const id = match[1] as string
+      if (HF_SKIP_COMMANDS.has(id)) continue
+      items.push({ id, name: id, description: (match[2] as string).trim() })
+    }
+  }
+  return { kind: 'groups', total: items.length, items }
+}
+
+function parseHfStatus(raw: string): CliAuthStatus {
+  const text = raw.trim()
+  if (/(not logged in|no token|invalid token|unauthorized)/i.test(text)) return { authenticated: false }
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    const read = (...keys: string[]): string | undefined => {
+      for (const key of keys) {
+        const value = parsed[key]
+        if (typeof value === 'string' && value.trim() !== '') return value.trim()
+        if (typeof value === 'object' && value !== null) {
+          const nested = (value as Record<string, unknown>).name
+          if (typeof nested === 'string' && nested.trim() !== '') return nested.trim()
+        }
+      }
+      return undefined
+    }
+    const name = read('name', 'user', 'username', 'fullname')
+    const email = read('email')
+    const org = read('org', 'orgs', 'orgName')
+    return {
+      authenticated: true,
+      ...(name === undefined && email === undefined && org === undefined
+        ? {}
+        : { account: { ...(name === undefined ? {} : { name }), ...(email === undefined ? {} : { email }), ...(org === undefined ? {} : { org }) } }),
+    }
+  } catch {
+    const name = /(?:user(?:name)?|account)\s*[:：]\s*(\S+)/i.exec(text)?.[1]
+    return { authenticated: text !== '', ...(name === undefined ? {} : { account: { name } }) }
+  }
+}
+
+const HF_BIN = join(homedir(), '.local', 'bin', process.platform === 'win32' ? 'hf.exe' : 'hf')
 
 export const CLI_ADAPTERS: Record<CliConnectorId, CliAdapter> = {
   dingtalk: {
@@ -446,6 +510,43 @@ export const CLI_ADAPTERS: Record<CliConnectorId, CliAdapter> = {
       files: ['bot.enc', 'token.enc', 'credentials.enc', 'config.json'],
     },
     parseStatus: parseWecomStatus,
+    parseLoginHint: textLoginHint,
+  },
+  hf: {
+    id: 'hf',
+    name: 'Hugging Face',
+    vendor: 'Hugging Face',
+    description: '通过官方 hf CLI 管理 Hugging Face：搜索与下载模型/数据集、上传文件、管理仓库、Spaces、Buckets、Jobs 与 Webhooks。',
+    category: '知识检索',
+    examples: [
+      '搜一下 Hugging Face 上 Qwen 的量化模型，按下载量排序',
+      '下载 meta-llama/Llama-3.2-1B-Instruct 到本地缓存',
+      '把本地 ./model 目录上传到我账号下新建的模型仓库',
+      '看看我昨天的 Jobs 跑完没有，失败的把日志摘要给我',
+    ],
+    docsUrl: 'https://huggingface.co/docs/hub/agents-cli',
+    bin: 'hf',
+    binCandidates: [HF_BIN],
+    versionArgs: ['version', '--format', 'json'],
+    loginTimeoutMs: 300_000,
+    capabilities: { args: ['--help'], parse: parseHfCapabilities },
+    install: [
+      { label: '安装 hf CLI', command: 'uv', args: ['tool', 'install', 'huggingface_hub'] },
+      { label: '安装 Hugging Face Skills', command: HF_BIN, args: ['skills', 'add', '-g'] },
+    ],
+    uninstall: [
+      { label: '卸载 hf CLI', command: 'uv', args: ['tool', 'uninstall', 'huggingface-hub'] },
+    ],
+    skills: {
+      expectedPrefix: 'hf-cli',
+      expected: ['hf-cli'],
+    },
+    auth: {
+      login: { command: 'hf', args: ['auth', 'login', '--format', 'agent'] },
+      status: { command: 'hf', args: ['auth', 'whoami', '--format', 'json'] },
+      logout: { command: 'hf', args: ['auth', 'logout'] },
+    },
+    parseStatus: parseHfStatus,
     parseLoginHint: textLoginHint,
   },
 }
