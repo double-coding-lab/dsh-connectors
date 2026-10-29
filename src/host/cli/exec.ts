@@ -23,6 +23,18 @@ export type ExecFn = (command: string, args: string[], options?: ExecOptions) =>
 const DEFAULT_TIMEOUT_MS = 10_000
 const DEFAULT_MAX_BYTES = 64 * 1024
 
+export function killProcessTree(child: { pid?: number; kill: () => boolean }): void {
+  if (child.pid === undefined) {
+    child.kill()
+    return
+  }
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+    return
+  }
+  child.kill()
+}
+
 function needsShell(command: string): boolean {
   return process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)
 }
@@ -57,7 +69,7 @@ export const defaultExec: ExecFn = (command, args, options = {}) => {
 
     const timer = setTimeout(() => {
       timedOut = true
-      child.kill()
+      killProcessTree(child)
     }, timeoutMs)
 
     const finish = (code: number | null): void => {
@@ -115,7 +127,7 @@ export function spawnStreaming(
 
   const timer = setTimeout(() => {
     timedOut = true
-    child.kill()
+    killProcessTree(child)
   }, timeoutMs)
 
   const done = new Promise<ExecResult>(resolve => {

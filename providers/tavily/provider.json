@@ -1,0 +1,41 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "tavily",
+  "name": "Tavily",
+  "vendor": "Tavily",
+  "category": "知识检索",
+  "summary": "实时联网搜索、网页正文提取与多源深度研究。",
+  "description": "Tavily 官方 MCP 服务：联网搜索、正文提取、站内爬取与映射、多源深度研究。授权时在浏览器登录 Tavily，令牌只保存在本机。",
+  "examples": [
+    "搜索最近一周关于【固态电池量产】的新闻，按可信度排序并给出出处",
+    "把这个页面提取成干净正文，去掉导航和广告",
+    "梳理 example.com 的站点结构，列出所有文档链接",
+    "调研【企业级 RAG 方案】，对比三种做法的成本和效果"
+  ],
+  "tags": [
+    "联网搜索",
+    "网页提取",
+    "深度研究"
+  ],
+  "order": 65,
+  "server": {
+    "serverName": "tavily",
+    "transport": "streamable-http",
+    "url": "https://mcp.tavily.com/mcp"
+  },
+  "auth": {
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "scopes": [
+      "openid",
+      "offline_access"
+    ],
+    "help": {
+      "url": "https://docs.tavily.com/documentation/mcp",
+      "label": "查看 Tavily MCP 说明",
+      "hint": "授权时在浏览器登录 Tavily；额度按账号套餐计，令牌只保存在本机。"
+    }
+  }
+}

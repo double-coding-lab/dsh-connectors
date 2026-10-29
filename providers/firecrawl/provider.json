@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schema/provider.schema.json",
+  "schemaVersion": 1,
+  "id": "firecrawl",
+  "name": "Firecrawl",
+  "vendor": "Firecrawl",
+  "category": "知识检索",
+  "summary": "抓取网页、爬取整站并提取结构化数据，把网页变成 Agent 可用的 Markdown 或 JSON。",
+  "description": "Firecrawl 官方 MCP 服务：单页抓取、站内爬取与映射、联网搜索、结构化提取和定时监控。授权时在浏览器登录 Firecrawl 并选择团队，令牌只保存在本机。",
+  "examples": [
+    "把这个产品页抓成 Markdown，保留标题和价格表",
+    "爬取 docs.example.com 的前 20 个页面，整理成一份知识摘要",
+    "搜索【固态电池量产进展】，把前 5 个结果的正文抓下来对比",
+    "按这个 JSON Schema 从招聘页面提取岗位、地点和薪资"
+  ],
+  "tags": [
+    "网页抓取",
+    "爬虫",
+    "结构化提取"
+  ],
+  "order": 64,
+  "server": {
+    "serverName": "firecrawl",
+    "transport": "streamable-http",
+    "url": "https://mcp.firecrawl.dev/v2/mcp-oauth"
+  },
+  "auth": {
+    "type": "oauth2",
+    "flow": "pkce",
+    "registration": "dcr",
+    "scopes": [
+      "firecrawl:global"
+    ],
+    "help": {
+      "url": "https://docs.firecrawl.dev/mcp-server",
+      "label": "查看 Firecrawl MCP 说明",
+      "hint": "授权时在浏览器登录 Firecrawl 并选择团队；额度按账号套餐计，令牌只保存在本机。"
+    }
+  }
+}

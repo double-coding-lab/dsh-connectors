@@ -5,7 +5,7 @@ import type { CliCapabilitiesView } from '../../shared/types.js'
 
 import { resolveNpmCommand, resolveNpxCommand } from './exec.js'
 
-export type CliConnectorId = 'dingtalk' | 'feishu' | 'tmeet' | 'wecom' | 'hf'
+export type CliConnectorId = 'dingtalk' | 'feishu' | 'tmeet' | 'wecom' | 'hf' | 'agent-mail'
 
 export interface CliAuthStatus {
   authenticated: boolean
@@ -365,6 +365,56 @@ function parseHfStatus(raw: string): CliAuthStatus {
 
 const HF_BIN = join(homedir(), '.local', 'bin', process.platform === 'win32' ? 'hf.exe' : 'hf')
 
+
+const AGENT_MAIL_SKIP_COMMANDS = new Set(['auth', 'help'])
+
+const AGENT_MAIL_GROUPS: Record<string, string> = {
+  '+me': '当前账号与别名',
+  attachment: '附件上传与下载',
+  message: '邮件列表、读取、搜索、监听、发送、回复、转发、垃圾箱与删除',
+}
+
+function parseAgentMailCapabilities(raw: string): CliCapabilitiesView {
+  const lines = raw.split(/\r?\n/)
+  const start = lines.findIndex(line => line.trim() === 'Available Commands:')
+  const items: CliCapabilitiesView['items'] = []
+  if (start >= 0) {
+    for (const line of lines.slice(start + 1)) {
+      const trimmed = line.trim()
+      if (trimmed === '' || trimmed.startsWith('Flags:')) break
+      const match = /^(\+?[a-z][a-z0-9-]*)\s{2,}(.+)$/.exec(trimmed)
+      if (match === null) continue
+      const id = match[1] as string
+      if (AGENT_MAIL_SKIP_COMMANDS.has(id)) continue
+      items.push({ id: id.startsWith('+') ? id.slice(1) : id, name: id, description: AGENT_MAIL_GROUPS[id] ?? (match[2] as string).trim() })
+    }
+  }
+  return { kind: 'groups', total: items.length, items }
+}
+
+function parseAgentMailStatus(raw: string): CliAuthStatus {
+  const text = raw.trim()
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    const data = typeof parsed.data === 'object' && parsed.data !== null
+      ? parsed.data as Record<string, unknown>
+      : parsed
+    const loggedIn = data.logged_in === true || data.status === 'logged_in' || data.logged_in === 'true'
+    if (!loggedIn) return { authenticated: false }
+    const read = (...keys: string[]): string | undefined => {
+      for (const key of keys) {
+        const value = data[key]
+        if (typeof value === 'string' && value.trim() !== '') return value.trim()
+      }
+      return undefined
+    }
+    const name = read('email', 'mail', 'address', 'alias', 'user')
+    return { authenticated: true, ...(name === undefined ? {} : { account: { name } }) }
+  } catch {
+    return { authenticated: /"logged_in"\s*:\s*true/.test(text) }
+  }
+}
+
 export const CLI_ADAPTERS: Record<CliConnectorId, CliAdapter> = {
   dingtalk: {
     id: 'dingtalk',
@@ -547,6 +597,42 @@ export const CLI_ADAPTERS: Record<CliConnectorId, CliAdapter> = {
       logout: { command: 'hf', args: ['auth', 'logout'] },
     },
     parseStatus: parseHfStatus,
+    parseLoginHint: textLoginHint,
+  },
+  'agent-mail': {
+    id: 'agent-mail',
+    name: 'Agent Mail',
+    vendor: 'QQ 邮箱',
+    description: '通过官方 agently-cli 操作 Agent Mail（QQ 邮箱为 Agent 打造的专属邮箱）：收发、回复、转发、搜索、附件与垃圾箱管理。',
+    category: '办公协作',
+    examples: [
+      '给 alice@example.com 发一封邮件，主题【周会纪要】，正文用我给的要点',
+      '看看我最近 10 封邮件，把需要今天回复的挑出来',
+      '搜索最近一个月带【发票】的邮件，把附件下载到本地',
+      '回复 msg_001，说明会议改到周四下午',
+    ],
+    docsUrl: 'https://agent.qq.com/doc/cli-setup.md',
+    bin: 'agently-cli',
+    versionArgs: ['--version'],
+    loginTimeoutMs: 300_000,
+    capabilities: { args: ['--help'], parse: parseAgentMailCapabilities },
+    install: [
+      { label: '安装 agently-cli', command: resolveNpmCommand(), args: ['install', '-g', '@tencent-qqmail/agently-cli'] },
+      { label: '安装 Agent Mail Skills', command: resolveNpxCommand(), args: ['skills', 'add', 'https://agent.qq.com', '--skill', '-g', '-y'] },
+    ],
+    uninstall: [
+      { label: '卸载 agently-cli', command: resolveNpmCommand(), args: ['uninstall', '-g', '@tencent-qqmail/agently-cli'] },
+    ],
+    skills: {
+      expectedPrefix: 'agently-mail',
+      expected: ['agently-mail'],
+    },
+    auth: {
+      login: { command: 'agently-cli', args: ['auth', 'login'] },
+      status: { command: 'agently-cli', args: ['auth', 'status'] },
+      logout: { command: 'agently-cli', args: ['auth', 'logout'] },
+    },
+    parseStatus: parseAgentMailStatus,
     parseLoginHint: textLoginHint,
   },
 }

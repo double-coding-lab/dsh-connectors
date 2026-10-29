@@ -7,7 +7,7 @@ npm run providers:icons   # 重新生成 src/client/provider-icons.generated.ts
 npm run check             # 类型检查 + 构建 + provider 校验
 ```
 
-当前内置 24 个：
+当前内置 26 个：
 
 | id | auth | 分类 |
 | --- | --- | --- |
@@ -35,7 +35,9 @@ npm run check             # 类型检查 + 构建 + provider 校验
 | tencent-docs | oauth2（DCR） | 办公协作 |
 | tianyancha | oauth2（DCR） | 数据分析 |
 | qcc | oauth2（DCR，instance 预置 10 个数据域） | 数据分析 |
+| firecrawl | oauth2（DCR） | 知识检索 |
+| tavily | oauth2（DCR） | 知识检索 |
 
-钉钉、飞书、腾讯会议、企业微信、Hugging Face 不在内置 MCP 目录：官方推荐使用 CLI + Skills（`dws` / `lark-cli` / `tmeet` / `wecom-cli` / `hf`），不走远程 MCP；有真实 MCP 地址的场景请用自定义连接器导入。
+钉钉、飞书、腾讯会议、企业微信、Hugging Face、Agent Mail 不在内置 MCP 目录：官方推荐使用 CLI + Skills（`dws` / `lark-cli` / `tmeet` / `wecom-cli` / `hf` / `agently-cli`），不走远程 MCP；有真实 MCP 地址的场景请用自定义连接器导入。
 
 新增或修改 provider 的完整规则见 [CONTRIBUTING.md](../CONTRIBUTING.md)。

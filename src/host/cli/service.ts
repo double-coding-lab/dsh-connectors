@@ -10,7 +10,7 @@ import { openExternal } from '../openExternal.js'
 import { defineCliDomain, type CliConnectorRecord } from '../store.js'
 import { getAdapter, listAdapters, type CliAdapter } from './adapters.js'
 import { compareVersions } from './version.js'
-import { defaultExec, redactOutput, resolveBinary, spawnStreaming, type ExecFn } from './exec.js'
+import { defaultExec, killProcessTree, redactOutput, resolveBinary, spawnStreaming, type ExecFn } from './exec.js'
 
 const VERSION_TIMEOUT_MS = 10_000
 const STATUS_TIMEOUT_MS = 15_000
@@ -38,7 +38,7 @@ interface CliJob {
   code?: string
   output: string
   error?: string
-  child?: { kill: () => boolean }
+  child?: { pid?: number; kill: () => boolean }
   cancel: boolean
   done: boolean
   settled: boolean
@@ -95,7 +95,7 @@ export class CliConnectorService {
   }
 
   async dispose(): Promise<void> {
-    for (const job of this.jobs.values()) job.child?.kill()
+    for (const job of this.jobs.values()) if (job.child !== undefined) killProcessTree(job.child)
     const domain = await this.domainPromise
     await domain.close()
   }
@@ -686,7 +686,7 @@ export class CliConnectorService {
     job.cancel = true
     job.done = true
     job.settled = true
-    job.child?.kill()
+    if (job.child !== undefined) killProcessTree(job.child)
     if (job.kind === 'uninstall') return this.refresh(adapter.id).catch(() => this.view(adapter.id))
     return this.view(adapter.id)
   }

@@ -2295,8 +2295,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
               void connect(dialogCard, undefined, 'dialog')
               return
             }
-            setDialogError(null)
-            setDialogInstall(true)
+            runOAuth(dialogCard, true, 'dialog')
           }}
           onCancelInstall={() => {
             setDialogInstall(false)
@@ -4266,8 +4265,8 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
           {needsToken && connection?.authorized === true && connection.error !== undefined && (
             <p className="dshc-dialog-hint">点击「更新令牌」重新填写 {tokenLabel(card)}。</p>
           )}
-          {oauth && showingInstall && (
-            <p className="dshc-dialog-hint">安装后会自动打开默认浏览器完成 {card.name} 授权。</p>
+          {oauth && connection === undefined && !showingInstall && (
+            <p className="dshc-dialog-hint">点击「安装」后会打开默认浏览器完成 {card.name} 授权。</p>
           )}
           {oauth && unauthorized && (
             <p className="dshc-dialog-hint">

@@ -9,6 +9,7 @@ const feishu = CLI_ADAPTERS.feishu
 const tmeet = CLI_ADAPTERS.tmeet
 const wecom = CLI_ADAPTERS.wecom
 const hf = CLI_ADAPTERS.hf
+const agentMail = CLI_ADAPTERS['agent-mail']
 
 assert.ok(dingtalk.install.some(step => step.args.includes('dingtalk-workspace-cli')), 'dingtalk install package')
 assert.ok(dingtalk.uninstall.some(step => step.args.includes('uninstall') && step.args.includes('dingtalk-workspace-cli')), 'dingtalk uninstall package')
@@ -202,5 +203,45 @@ assert.equal(hfStatus.account?.name, '李国川')
 const hfHint = hf.parseLoginHint('Ask the user to open https://hf.co/oauth/device in a browser and enter the code KOCX-2X6I.')
 assert.equal(hfHint.link, 'https://hf.co/oauth/device')
 assert.equal(hfHint.code, 'KOCX-2X6I')
+
+assert.ok(agentMail.install.some(step => step.args.includes('@tencent-qqmail/agently-cli')), 'agent mail cli install')
+assert.ok(agentMail.install.some(step => step.args.includes('https://agent.qq.com') && step.args.includes('skills')), 'agent mail skills install')
+assert.ok(agentMail.uninstall.some(step => step.args.includes('uninstall') && step.args.includes('@tencent-qqmail/agently-cli')), 'agent mail uninstall package')
+assert.deepEqual(agentMail.auth.login.args, ['auth', 'login'])
+assert.deepEqual(agentMail.auth.status.args, ['auth', 'status'])
+assert.deepEqual(agentMail.auth.logout.args, ['auth', 'logout'])
+assert.equal(agentMail.loginTimeoutMs, 300000)
+assert.deepEqual(agentMail.skills.expected, ['agently-mail'])
+assert.equal(agentMail.docsUrl, 'https://agent.qq.com/doc/cli-setup.md')
+
+const agentMailHelp = [
+  'Agently CLI tool.',
+  '',
+  'Usage:',
+  '  agently-cli [command]',
+  '',
+  'Available Commands:',
+  '  +me         Show current user info and alias list',
+  '  attachment  Attachment operations (upload, download)',
+  '  auth        OAuth credentials and authorization management',
+  '  help        Help about any command',
+  '  message     Message operations (list, read, search, watch, send, reply, forward, trash, delete)',
+  '',
+  'Flags:',
+  '  -h, --help      help for agently-cli',
+].join('\n')
+const agentMailCapabilities = agentMail.capabilities.parse(agentMailHelp)
+assert.equal(agentMailCapabilities.kind, 'groups')
+assert.equal(agentMailCapabilities.total, 3)
+assert.ok(agentMailCapabilities.items.some(item => item.id === 'me' && item.name === '+me'))
+assert.ok(agentMailCapabilities.items.some(item => item.id === 'message' && item.description.startsWith('邮件列表')))
+assert.ok(!agentMailCapabilities.items.some(item => item.id === 'auth' || item.id === 'help'))
+
+assert.equal(agentMail.parseStatus('{"ok":true,"data":{"logged_in":false,"status":"not_logged_in"}}').authenticated, false)
+const agentMailStatus = agentMail.parseStatus(JSON.stringify({ ok: true, data: { logged_in: true, status: 'logged_in', email: 'bot_123@agent.qq.com' } }))
+assert.equal(agentMailStatus.authenticated, true)
+assert.equal(agentMailStatus.account?.name, 'bot_123@agent.qq.com')
+const agentMailHint = agentMail.parseLoginHint('Open https://agent.qq.com/page/oauth?oauth_type=device&user_code=ABCD-1234 to continue')
+assert.equal(agentMailHint.link, 'https://agent.qq.com/page/oauth?oauth_type=device&user_code=ABCD-1234')
 
 console.log('cli adapter tests: passed')
