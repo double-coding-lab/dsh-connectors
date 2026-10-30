@@ -22,17 +22,38 @@ const STYLE_ID = 'dsh-connectors-style'
 const PROBE_ROUNDS = 6
 const PROBE_INTERVAL_MS = 350
 
+function customSummary(card: ConnectorCard): string {
+  return tr(card.server.transport === 'stdio'
+    ? '通过 mcpServers 导入的本地 stdio MCP Server。'
+    : card.server.transport === 'sse'
+      ? '通过 mcpServers 导入的 SSE MCP Server。'
+      : '通过 mcpServers 导入的 Streamable HTTP MCP Server。')
+}
+
 function localizedCard(card: ConnectorCard): ConnectorCard {
-  if (currentLocale().toLowerCase().startsWith('zh')) return card
+  const english = currentLocale().toLowerCase().startsWith('en')
+  if (card.source === 'custom') {
+    const copy = english ? card.translations?.en : undefined
+    const description = copy?.description ?? card.description
+    return {
+      ...card,
+      vendor: tr('自定义'),
+      summary: description ?? customSummary(card),
+      ...(description === undefined ? {} : { description }),
+      examples: copy?.examples ?? card.examples,
+      categoryLabel: english ? copy?.category ?? card.category : card.category,
+    }
+  }
+  if (!english) return { ...card, categoryLabel: card.category }
   const copy = card.translations?.en
-  if (copy === undefined) return card
   return {
     ...card,
-    name: copy.name ?? card.name,
-    vendor: copy.vendor ?? card.vendor,
-    summary: copy.summary ?? card.summary,
-    description: copy.description ?? card.description,
-    examples: copy.examples ?? card.examples,
+    name: copy?.name ?? card.name,
+    vendor: copy?.vendor ?? card.vendor,
+    summary: copy?.summary ?? card.summary,
+    description: copy?.description ?? card.description,
+    examples: copy?.examples ?? card.examples,
+    categoryLabel: tr(card.category),
   }
 }
 
@@ -87,7 +108,14 @@ const MCP_SERVERS_PLACEHOLDER_EN = `{
 const X_DSH_SAMPLE_EN = `"x-dsh": {
   "description": "Inspect repository structure and docs",
   "category": "Search & knowledge",
-  "examples": ["Use DeepWiki to inspect the facebook/react repository structure"]
+  "examples": ["Use DeepWiki to inspect the facebook/react repository structure"],
+  "translations": {
+    "zh": {
+      "description": "查询仓库结构与文档",
+      "category": "知识检索",
+      "examples": ["用 DeepWiki 查 facebook/react 的仓库结构"]
+    }
+  }
 }`
 interface SlotsFace {
   inject: (name: string, callback: () => unknown) => unknown
@@ -1598,6 +1626,17 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
 
   const localizedCards = useMemo(() => cards.map(localizedCard), [cards, localeRevision])
 
+  const categoryLabels = useMemo(() => {
+    const labels = new Map<string, string>()
+    for (const card of localizedCards) {
+      if (!labels.has(card.category)) labels.set(card.category, card.categoryLabel ?? tr(card.category))
+    }
+    for (const connector of localizedCliConnectors) {
+      if (!labels.has(connector.category)) labels.set(connector.category, tr(connector.category))
+    }
+    return labels
+  }, [localizedCards, localizedCliConnectors])
+
   const categories = useMemo(() => {
     const present = new Set([
       ...localizedCards.map(card => card.category),
@@ -2396,7 +2435,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
               className={item === category ? 'dshc-tab dshc-tab-active' : 'dshc-tab'}
               onClick={() => setCategory(item)}
             >
-              {tr(item)}
+              {categoryLabels.get(item) ?? tr(item)}
             </button>
           ))}
         </nav>
@@ -4077,7 +4116,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
       </p>
       {error !== undefined && <p className="dshc-card-error" title={error}>{error}</p>}
       <div className="dshc-card-foot">
-        <span className="dshc-badge">{tr(card.category)}</span>
+        <span className="dshc-badge">{card.categoryLabel ?? tr(card.category)}</span>
         {connection === undefined ? (
           <span className="dshc-card-install-actions">
             {onDelete !== undefined && (
@@ -4453,7 +4492,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
           <span className="dshc-avatar dshc-dialog-avatar dshc-dialog-avatar-lg"><ConnectorLogo card={card} /></span>
           <div className="dshc-dialog-title">
             <h2>{card.name}</h2>
-            <span>{[card.vendor, tr(card.category)].filter(Boolean).join(' · ')}</span>
+            <span>{[card.vendor, card.categoryLabel ?? tr(card.category)].filter(Boolean).join(' · ')}</span>
           </div>
           <span className={`${statusClass} dshc-dialog-status-pill`}>{statusText}</span>
           <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
@@ -5296,6 +5335,10 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
   const [examples, setExamples] = useState('')
+  const [descriptionEn, setDescriptionEn] = useState('')
+  const [categoryEn, setCategoryEn] = useState('')
+  const [examplesEn, setExamplesEn] = useState('')
+  const [metaLang, setMetaLang] = useState<'zh' | 'en'>(currentLocale().toLowerCase().startsWith('en') ? 'en' : 'zh')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [privateWarning, setPrivateWarning] = useState(false)
@@ -5316,27 +5359,11 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
   const parsedJson = useMemo<{
     count: number
     meta: { description?: string; category?: string; examples?: string[] } | null
+    metaEn: { description?: string; category?: string; examples?: string[] } | null
   }>(() => {
-    try {
-      const parsed = JSON.parse(json) as { mcpServers?: unknown }
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return { count: 0, meta: null }
-      }
-      const servers = parsed.mcpServers
-      if (servers === null || typeof servers !== 'object' || Array.isArray(servers)) {
-        return { count: 0, meta: null }
-      }
-      const entries = Object.entries(servers)
-      if (entries.length !== 1) return { count: entries.length, meta: null }
-      const server = entries[0]?.[1]
-      if (server === null || typeof server !== 'object' || Array.isArray(server)) {
-        return { count: 1, meta: null }
-      }
-      const xdsh = (server as Record<string, unknown>)['x-dsh']
-      if (xdsh === null || typeof xdsh !== 'object' || Array.isArray(xdsh)) {
-        return { count: 1, meta: null }
-      }
-      const record = xdsh as Record<string, unknown>
+    const readMeta = (value: unknown): { description?: string; category?: string; examples?: string[] } | null => {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+      const record = value as Record<string, unknown>
       const description = typeof record.description === 'string' && record.description.trim() !== ''
         ? record.description.trim()
         : undefined
@@ -5348,22 +5375,48 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
           .filter((item): item is string => typeof item === 'string' && item.trim() !== '')
           .map(item => item.trim())
         : undefined
-      return {
-        count: 1,
-        meta: {
-          ...(description === undefined ? {} : { description }),
-          ...(category === undefined ? {} : { category }),
-          ...(examples === undefined || examples.length === 0 ? {} : { examples }),
-        },
+      if (description === undefined && category === undefined && (examples === undefined || examples.length === 0)) {
+        return null
       }
+      return {
+        ...(description === undefined ? {} : { description }),
+        ...(category === undefined ? {} : { category }),
+        ...(examples === undefined || examples.length === 0 ? {} : { examples }),
+      }
+    }
+    try {
+      const parsed = JSON.parse(json) as { mcpServers?: unknown }
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { count: 0, meta: null, metaEn: null }
+      }
+      const servers = parsed.mcpServers
+      if (servers === null || typeof servers !== 'object' || Array.isArray(servers)) {
+        return { count: 0, meta: null, metaEn: null }
+      }
+      const entries = Object.entries(servers)
+      if (entries.length !== 1) return { count: entries.length, meta: null, metaEn: null }
+      const server = entries[0]?.[1]
+      if (server === null || typeof server !== 'object' || Array.isArray(server)) {
+        return { count: 1, meta: null, metaEn: null }
+      }
+      const xdsh = (server as Record<string, unknown>)['x-dsh']
+      if (xdsh === null || typeof xdsh !== 'object' || Array.isArray(xdsh)) {
+        return { count: 1, meta: null, metaEn: null }
+      }
+      const record = xdsh as Record<string, unknown>
+      const translations = record.translations
+      const en = translations !== null && typeof translations === 'object' && !Array.isArray(translations)
+        ? (translations as Record<string, unknown>).en
+        : undefined
+      return { count: 1, meta: readMeta(xdsh), metaEn: readMeta(en) }
     } catch {
-      return { count: 0, meta: null }
+      return { count: 0, meta: null, metaEn: null }
     }
   }, [json])
   const serverCount = parsedJson.count
   const jsonMeta = parsedJson.meta
-  const hasJsonMeta = jsonMeta !== null
-    && (jsonMeta.description !== undefined || jsonMeta.category !== undefined || jsonMeta.examples !== undefined)
+  const previewMetaEn = parsedJson.metaEn
+  const hasJsonMeta = jsonMeta !== null || previewMetaEn !== null
   const previewMeta = jsonMeta
 
   useEffect(() => {
@@ -5436,6 +5489,13 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
     setPending(true)
     setError(null)
     const exampleLines = parseExampleLines(examples)
+    const exampleLinesEn = parseExampleLines(examplesEn)
+    const enTranslations = {
+      ...(descriptionEn.trim() === '' ? {} : { description: descriptionEn.trim() }),
+      ...(categoryEn.trim() === '' ? {} : { category: categoryEn.trim() }),
+      ...(exampleLinesEn.length === 0 ? {} : { examples: exampleLinesEn }),
+    }
+    const translations = Object.keys(enTranslations).length === 0 ? undefined : { en: enTranslations }
     void (async () => {
       try {
         const body = JSON.stringify({
@@ -5444,6 +5504,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
           ...(description.trim() === '' ? {} : { description: description.trim() }),
           ...(category.trim() === '' ? {} : { category: category.trim() }),
           ...(exampleLines.length === 0 ? {} : { examples: exampleLines }),
+          ...(translations === undefined ? {} : { translations }),
         })
         if (editing !== undefined) {
           const response = await request<CustomUpdatePayload>(
@@ -5557,6 +5618,30 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
           {hasJsonMeta && (
             <p className="dshc-dialog-hint">{tr("已读取 JSON 中的 x-dsh；下方留空就使用它，填写会覆盖。")}</p>
           )}
+          <div className="dshc-meta-lang">
+            <span>{tr('文案语言')}</span>
+            <div className="dshc-lang-switch" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={metaLang === 'zh'}
+                className={metaLang === 'zh' ? 'dshc-lang-option dshc-lang-option-active' : 'dshc-lang-option'}
+                onClick={() => setMetaLang('zh')}
+              >
+                中文
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={metaLang === 'en'}
+                className={metaLang === 'en' ? 'dshc-lang-option dshc-lang-option-active' : 'dshc-lang-option'}
+                onClick={() => setMetaLang('en')}
+              >
+                English
+              </button>
+            </div>
+          </div>
+          <div hidden={metaLang !== 'zh'}>
           <label className="dshc-field">
             <span>{tr("描述（可选）")}</span>
             <input
@@ -5625,6 +5710,46 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
               onChange={event => setExamples(event.target.value)}
             />
           </label>
+          </div>
+          <div hidden={metaLang !== 'en'}>
+            <label className="dshc-field">
+              <span>{tr('英文描述（可选）')}</span>
+              <input
+                autoComplete="off"
+                maxLength={120}
+                placeholder={previewMetaEn?.description === undefined
+                  ? tr('留空使用中文描述')
+                  : tr("JSON 中：{v0}", { v0: previewMetaEn.description })}
+                value={descriptionEn}
+                onChange={event => setDescriptionEn(event.target.value)}
+              />
+            </label>
+            <label className="dshc-field">
+              <span>{tr('英文分类显示名（可选）')}</span>
+              <input
+                autoComplete="off"
+                maxLength={64}
+                placeholder={previewMetaEn?.category === undefined
+                  ? tr('留空使用中文分类')
+                  : tr("JSON 中：{v0}", { v0: previewMetaEn.category })}
+                value={categoryEn}
+                onChange={event => setCategoryEn(event.target.value)}
+              />
+              <p className="dshc-dialog-hint">{tr('仅用于显示，不改变分类分组。')}</p>
+            </label>
+            <label className="dshc-field">
+              <span>{tr('英文示例提示词（可选，每行一条）')}</span>
+              <textarea
+                className="dshc-examples-input"
+                spellCheck={false}
+                placeholder={previewMetaEn?.examples === undefined
+                  ? tr('留空使用中文示例')
+                  : tr("JSON 中：\n{v0}", { v0: previewMetaEn.examples.join('\n') })}
+                value={examplesEn}
+                onChange={event => setExamplesEn(event.target.value)}
+              />
+            </label>
+          </div>
           {editing === undefined && serverCount > 1 && (
             <p className="dshc-warning">
               
@@ -5744,11 +5869,18 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
           ) : (
             <>
               <strong>{tr("可选扩展：x-dsh")}</strong>
-              <span>{tr("可在每个 server 配置里指定描述、类别与示例，优先于下方表单：")}</span>
+              <span>{tr("可在每个 server 配置里指定描述、类别与示例，并用 translations.en 提供英文副本；优先于下方表单：")}</span>
               <code>{currentLocale().toLowerCase().startsWith('en') ? X_DSH_SAMPLE_EN : `"x-dsh": {
   "description": "查询仓库结构与文档",
   "category": "知识检索",
-  "examples": ["用 DeepWiki 查 facebook/react 的仓库结构"]
+  "examples": ["用 DeepWiki 查 facebook/react 的仓库结构"],
+  "translations": {
+    "en": {
+      "description": "Inspect repository structure and docs",
+      "category": "Search & knowledge",
+      "examples": ["Use DeepWiki to inspect facebook/react"]
+    }
+  }
 }`}</code>
             </>
           )}
@@ -6010,6 +6142,10 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-status-pill-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);color:var(--dsw-alias-state-error-primary)}
 .dshc-status-pill .dshc-spinner{margin-right:5px}
 .dshc-field{display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:18px;color:var(--dsw-alias-label-secondary)}
+.dshc-meta-lang{display:flex;align-items:center;gap:10px;font-size:13px;line-height:18px;color:var(--dsw-alias-label-secondary)}
+.dshc-lang-switch{display:inline-flex;gap:2px;padding:2px;border:.5px solid var(--dsw-alias-border-l);border-radius:var(--dsw-radius-md)}
+.dshc-lang-option{border:0;background:transparent;color:inherit;font:inherit;font-size:12px;line-height:18px;padding:2px 8px;border-radius:calc(var(--dsw-radius-md) - 2px);cursor:pointer}
+.dshc-lang-option-active{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
 .dshc-field input{box-sizing:border-box;height:40px;padding:0 14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;outline:none}
 .dshc-field-control{position:relative;display:block}
 .dshc-field-control input{width:100%;padding-right:40px}

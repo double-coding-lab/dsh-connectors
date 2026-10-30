@@ -61,6 +61,11 @@ export const customConnectorSchema = z.object({
   category: z.string().min(1).max(64).optional(),
   description: z.string().min(1).max(120).optional(),
   examples: z.array(z.string().min(1)).max(6).optional(),
+  translations: z.record(z.string(), z.object({
+    description: z.string().min(1).max(120).optional(),
+    category: z.string().min(1).max(64).optional(),
+    examples: z.array(z.string().min(1)).max(6).optional(),
+  }).strict()).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 })

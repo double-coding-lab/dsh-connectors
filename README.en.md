@@ -39,7 +39,7 @@ Browse by category or search, then click the plus button on a card to install.
 - **Tokens and custom endpoints**: API-key services use a token dialog; self-hosted services take a full MCP URL that stays on your machine.
 - **CLI login and updates in the panel**: DingTalk, Feishu, Tencent Meeting, WeCom, Hugging Face, and Agent Mail run through their official CLIs; install, login, update, and uninstall all happen in the panel.
 - **SSE-only servers work too**: a built-in stdio bridge adapts them for `dsh-mcp-client`; Baidu Netdisk uses this path.
-- **Custom `mcpServers`**: paste standard JSON for Streamable HTTP, SSE, or stdio; private or localhost URLs require explicit confirmation.
+- **Custom `mcpServers`**: paste standard JSON for Streamable HTTP, SSE, or stdio; private or localhost URLs require explicit confirmation; descriptions, category labels, and examples can be provided in both Chinese and English.
 - **A provider is a data file**: adding a connector means adding a `provider.json`; no core code changes and no per-vendor branches.
 - **Follows the DSH language**: the panel, catalog copy, and CLI capability descriptions switch between Chinese and English in Settings, live.
 - **Credentials stay on the machine**: connection records, tokens, and OAuth client data live on the host, are never returned by the API, and are redacted from logs.

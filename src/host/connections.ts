@@ -22,6 +22,7 @@ import {
   type OAuthMetadata,
 } from './oauth.js'
 import { defineConnectorDomain, type ConnectionRecord, type CustomConnectorRecord } from './store.js'
+import type { CustomTranslations } from '../shared/types.js'
 
 const SSE_BRIDGE_PATH = fileURLToPath(new URL('./sse-bridge.js', import.meta.url))
 
@@ -164,6 +165,49 @@ function sameStringMap(
   const rightKeys = Object.keys(right).sort()
   return leftKeys.length === rightKeys.length
     && leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key])
+}
+
+function validateCustomTranslations(input: CustomTranslations | undefined): CustomTranslations | undefined {
+  if (input === undefined) return undefined
+  const out: CustomTranslations = {}
+  for (const [locale, raw] of Object.entries(input)) {
+    if (!/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/.test(locale)) {
+      throw new ConnectError('invalid_translation', `语言代码 "${locale}" 不合法`)
+    }
+    const description = raw.description?.trim()
+    if (description !== undefined && Array.from(description).length > 120) {
+      throw new ConnectError('invalid_description', `translations.${locale}.description 最多 120 字`)
+    }
+    const category = raw.category?.trim()
+    if (category !== undefined && Array.from(category).length > 64) {
+      throw new ConnectError('invalid_category', `translations.${locale}.category 最多 64 字`)
+    }
+    const examples = raw.examples?.map(item => item.trim()).filter(item => item !== '')
+    if (examples !== undefined && examples.length > MAX_EXAMPLES) {
+      throw new ConnectError('invalid_examples', `translations.${locale}.examples 最多 ${MAX_EXAMPLES} 条`)
+    }
+    if (description !== undefined || category !== undefined || (examples !== undefined && examples.length > 0)) {
+      out[locale] = {
+        ...(description === undefined ? {} : { description }),
+        ...(category === undefined ? {} : { category }),
+        ...(examples === undefined || examples.length === 0 ? {} : { examples }),
+      }
+    }
+  }
+  return Object.keys(out).length === 0 ? undefined : out
+}
+
+function mergeCustomTranslations(
+  base: CustomTranslations | undefined,
+  override: CustomTranslations | undefined,
+): CustomTranslations | undefined {
+  if (base === undefined) return override
+  if (override === undefined) return base
+  const out: CustomTranslations = { ...base }
+  for (const [locale, value] of Object.entries(override)) {
+    out[locale] = { ...(base[locale] ?? {}), ...value }
+  }
+  return out
 }
 
 function sameConnectionConfig(
@@ -963,7 +1007,7 @@ export class ConnectionService {
   async importCustom(
     text: string,
     allowPrivate: boolean,
-    options: { category?: string; description?: string; examples?: string[] } = {},
+    options: { category?: string; description?: string; examples?: string[]; translations?: CustomTranslations } = {},
   ): Promise<ConnectorCard[]> {
     const seeds = parseMcpServers(text)
     assertPrivateUrlsAllowed(seeds, allowPrivate)
@@ -991,6 +1035,7 @@ export class ConnectionService {
     const examplesOverride = batchExamples === undefined || batchExamples.length === 0
       ? undefined
       : batchExamples
+    const translationsOverride = validateCustomTranslations(options.translations)
 
     const customTable = await this.customTable()
     const connections = await this.table()
@@ -1026,6 +1071,7 @@ export class ConnectionService {
         throw new ConnectError('invalid_description', `${seed.displayName}: 描述最多 120 字`)
       }
       const examples = examplesOverride ?? seed.examples ?? []
+      const translations = mergeCustomTranslations(seed.translations, translationsOverride)
       const record: CustomConnectorRecord = {
         key: seed.connectorId,
         connectorId: seed.connectorId,
@@ -1041,6 +1087,7 @@ export class ConnectionService {
         category,
         ...(description === undefined || description === '' ? {} : { description }),
         ...(examples.length === 0 ? {} : { examples }),
+        ...(translations === undefined ? {} : { translations }),
         createdAt: now,
         updatedAt: now,
       }
@@ -1079,6 +1126,7 @@ export class ConnectionService {
     if (record.category !== undefined) metadata.category = record.category
     if (record.description !== undefined) metadata.description = record.description
     if (record.examples !== undefined) metadata.examples = record.examples
+    if (record.translations !== undefined) metadata.translations = record.translations
     if (Object.keys(metadata).length > 0) server['x-dsh'] = metadata
 
     const connections = await this.table()
@@ -1092,7 +1140,7 @@ export class ConnectionService {
     connectorId: string,
     text: string,
     allowPrivate: boolean,
-    options: { category?: string; description?: string; examples?: string[] } = {},
+    options: { category?: string; description?: string; examples?: string[]; translations?: CustomTranslations } = {},
   ): Promise<{ card: ConnectorCard; disconnected: boolean }> {
     const customTable = await this.customTable()
     const previous = customTable.get(connectorId)
@@ -1144,6 +1192,7 @@ export class ConnectionService {
     const examples = batchExamples !== undefined && batchExamples.length > 0
       ? batchExamples
       : seed.examples ?? []
+    const translations = mergeCustomTranslations(seed.translations, validateCustomTranslations(options.translations))
 
     const url = seed.url === undefined ? undefined : restoreCustomUrl(seed.url, previous.url)
     if (url !== undefined && url.endsWith(`?${CUSTOM_SECRET_PLACEHOLDER}`)) {
@@ -1166,6 +1215,7 @@ export class ConnectionService {
       category,
       ...(description === undefined || description === '' ? {} : { description }),
       ...(examples.length === 0 ? {} : { examples }),
+      ...(translations === undefined ? {} : { translations }),
       updatedAt: Date.now(),
     }
     await customTable.put(connectorId, record)
@@ -1263,6 +1313,7 @@ export class ConnectionService {
           : '通过 mcpServers 导入的 Streamable HTTP MCP Server。'),
       ...(record.description === undefined ? {} : { description: record.description }),
       ...(record.examples === undefined ? {} : { examples: record.examples }),
+      ...(record.translations === undefined ? {} : { translations: record.translations }),
       tags: ['自定义', resolveCategory(record.category), record.transport],
       published: true,
       auth: { type: 'none' },

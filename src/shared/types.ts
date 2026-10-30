@@ -46,15 +46,20 @@ export interface ProviderInstance {
   presets?: ProviderInstancePreset[]
 }
 
+export interface CustomTranslations {
+  [locale: string]: { description?: string; category?: string; examples?: string[] }
+}
+
 export interface ConnectorCard {
   id: string
   name: string
   vendor?: string
   category: string
+  categoryLabel?: string
   summary: string
   description?: string
   examples?: string[]
-  translations?: Record<string, { name?: string; vendor?: string; summary?: string; description?: string; examples?: string[] }>
+  translations?: Record<string, { name?: string; vendor?: string; summary?: string; description?: string; category?: string; examples?: string[] }>
   tags?: string[]
   published: boolean
   featured?: boolean

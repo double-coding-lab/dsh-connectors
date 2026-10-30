@@ -40,6 +40,38 @@ assert.equal(httpSeed?.category, '知识检索')
 assert.equal(httpSeed?.description, '查询 GitHub 仓库结构与文档')
 assert.deepEqual(httpSeed?.examples, ['查 facebook/react 的仓库结构'])
 
+const [translatedSeed] = parseMcpServers(JSON.stringify({
+  mcpServers: {
+    deepwiki: {
+      url: 'https://mcp.deepwiki.com/mcp',
+      'x-dsh': {
+        description: '查询 GitHub 仓库结构与文档',
+        translations: {
+          en: {
+            description: 'Inspect GitHub repository structure and docs',
+            category: 'Search & knowledge',
+            examples: ['Inspect the facebook/react repository'],
+          },
+        },
+      },
+    },
+  },
+}))
+assert.equal(translatedSeed?.translations?.en?.description, 'Inspect GitHub repository structure and docs')
+assert.equal(translatedSeed?.translations?.en?.category, 'Search & knowledge')
+assert.deepEqual(translatedSeed?.translations?.en?.examples, ['Inspect the facebook/react repository'])
+assert.throws(
+  () => parseMcpServers(JSON.stringify({
+    mcpServers: {
+      bad: {
+        url: 'https://example.com/mcp',
+        'x-dsh': { translations: { en: { examples: ['1', '2', '3', '4', '5', '6', '7'] } } },
+      },
+    },
+  })),
+  error => error?.code === 'invalid_examples',
+)
+
 const [stdioSeed] = parseMcpServers(JSON.stringify({
   mcpServers: {
     everything: {
@@ -170,6 +202,34 @@ const overridden = await makeService().importCustom(singleXdsh, false, {
 assert.equal(overridden[0]?.category, '开发工具')
 assert.equal(overridden[0]?.summary, '表单描述')
 assert.deepEqual(overridden[0]?.examples, ['表单示例'])
+
+const translatedJson = JSON.stringify({
+  mcpServers: {
+    deepwiki: {
+      url: 'https://mcp.deepwiki.com/mcp',
+      'x-dsh': {
+        description: 'JSON 描述',
+        translations: {
+          en: { description: 'English description', category: 'Search & knowledge', examples: ['English example'] },
+        },
+      },
+    },
+  },
+})
+const translatedService = makeService()
+const translatedCards = await translatedService.importCustom(translatedJson, false, {})
+assert.equal(translatedCards[0]?.translations?.en?.description, 'English description')
+const translatedConfig = await translatedService.customConfig(translatedCards[0].id)
+assert.equal(
+  JSON.parse(translatedConfig.json).mcpServers.deepwiki['x-dsh'].translations.en.category,
+  'Search & knowledge',
+)
+const formTranslated = await makeService().importCustom(translatedJson, false, {
+  translations: { en: { description: 'Form English description' } },
+})
+assert.equal(formTranslated[0]?.translations?.en?.description, 'Form English description')
+assert.equal(formTranslated[0]?.translations?.en?.category, 'Search & knowledge')
+assert.deepEqual(formTranslated[0]?.translations?.en?.examples, ['English example'])
 
 const scopedService = makeService()
 const scopedCards = await scopedService.importCustom(JSON.stringify({

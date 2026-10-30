@@ -39,7 +39,7 @@ dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP
 - **Token 和自定义地址**：需要 API Key 的服务用独立令牌弹窗；自建服务填写完整的 MCP 地址，地址只保存在本机。
 - **CLI 连接的登录和更新也在面板里**：钉钉、飞书、腾讯会议、企业微信、Hugging Face、Agent Mail 通过官方 CLI 工作；安装、登录、更新、卸载都在面板里完成。
 - **SSE 服务也能接入**：插件内置 stdio 桥，把只提供 SSE 的 MCP Server 转接给 `dsh-mcp-client`；百度网盘用的就是这种方式。
-- **自定义 `mcpServers`**：粘贴标准 JSON，支持 Streamable HTTP、SSE 与 stdio；内网 / localhost 地址需要二次确认。
+- **自定义 `mcpServers`**：粘贴标准 JSON，支持 Streamable HTTP、SSE 与 stdio；内网 / localhost 地址需要二次确认；描述、分类显示名和示例可以同时填写中英文。
 - **Provider 只包含数据**：新增连接器就是加一个 `provider.json`，不用改核心代码，也没有厂商分支。
 - **跟随 DSH 语言**：面板、目录文案与 CLI 能力说明跟随设置里的中英文切换，切换后即时生效。
 - **凭据留在本机**：连接记录、令牌和 OAuth 客户端信息由宿主保管，接口不回传，日志脱敏。

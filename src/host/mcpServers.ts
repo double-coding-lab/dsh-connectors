@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 import { ConnectError } from './errors.js'
 import { MAX_EXAMPLES } from '../shared/categories.js'
+import type { CustomTranslations } from '../shared/types.js'
 
 export type CustomTransport = 'streamable-http' | 'sse' | 'stdio'
 
@@ -19,6 +20,7 @@ export interface McpServerSeed {
   category?: string
   description?: string
   examples?: string[]
+  translations?: CustomTranslations
 }
 
 const CONFIG_NAME_RE = /^(?:@[A-Za-z0-9][A-Za-z0-9._-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -69,7 +71,48 @@ function stringArray(value: unknown, label: string): string[] | undefined {
   })
 }
 
-function parseXdsh(raw: Record<string, unknown>, serverName: string): { category?: string; description?: string; examples?: string[] } {
+function parseTranslations(value: unknown, serverName: string): CustomTranslations | undefined {
+  if (value === undefined || value === null) return undefined
+  if (!isRecord(value)) {
+    throw new ConnectError('invalid_server_config', `${serverName}.x-dsh.translations 必须是对象`)
+  }
+  const out: CustomTranslations = {}
+  for (const [locale, raw] of Object.entries(value)) {
+    const label = `${serverName}.x-dsh.translations.${locale}`
+    if (!/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/.test(locale)) {
+      throw new ConnectError('invalid_server_config', `${label} 的语言代码不合法`)
+    }
+    if (!isRecord(raw)) {
+      throw new ConnectError('invalid_server_config', `${label} 必须是对象`)
+    }
+    const description = optionalString(raw.description, `${label}.description`)
+    if (description !== undefined && Array.from(description).length > 120) {
+      throw new ConnectError('invalid_description', `${label}.description 最多 120 字`)
+    }
+    const category = optionalString(raw.category, `${label}.category`)
+    if (category !== undefined && Array.from(category).length > 64) {
+      throw new ConnectError('invalid_category', `${label}.category 最多 64 字`)
+    }
+    const rawExamples = stringArray(raw.examples, `${label}.examples`)
+    let examples: string[] | undefined
+    if (rawExamples !== undefined) {
+      examples = rawExamples.map(item => item.trim()).filter(item => item !== '')
+      if (examples.length > MAX_EXAMPLES) {
+        throw new ConnectError('invalid_examples', `${label}.examples 最多 ${MAX_EXAMPLES} 条`)
+      }
+    }
+    if (description !== undefined || category !== undefined || (examples !== undefined && examples.length > 0)) {
+      out[locale] = {
+        ...(description === undefined ? {} : { description }),
+        ...(category === undefined ? {} : { category }),
+        ...(examples === undefined || examples.length === 0 ? {} : { examples }),
+      }
+    }
+  }
+  return Object.keys(out).length === 0 ? undefined : out
+}
+
+function parseXdsh(raw: Record<string, unknown>, serverName: string): { category?: string; description?: string; examples?: string[]; translations?: CustomTranslations } {
   const metadata = raw['x-dsh']
   if (metadata === undefined || metadata === null) return {}
   if (!isRecord(metadata)) {
@@ -85,10 +128,12 @@ function parseXdsh(raw: Record<string, unknown>, serverName: string): { category
       throw new ConnectError('invalid_examples', `${serverName}.x-dsh.examples 最多 ${MAX_EXAMPLES} 条`)
     }
   }
+  const translations = parseTranslations(metadata.translations, serverName)
   return {
     ...(category === undefined ? {} : { category }),
     ...(description === undefined ? {} : { description }),
     ...(examples === undefined ? {} : { examples }),
+    ...(translations === undefined ? {} : { translations }),
   }
 }
 
@@ -158,6 +203,7 @@ function parseServer(displayName: string, raw: unknown): McpServerSeed {
       ...(metadata.category === undefined ? {} : { category: metadata.category }),
       ...(metadata.description === undefined ? {} : { description: metadata.description }),
       ...(metadata.examples === undefined ? {} : { examples: metadata.examples }),
+      ...(metadata.translations === undefined ? {} : { translations: metadata.translations }),
     }
   }
 
@@ -182,6 +228,7 @@ function parseServer(displayName: string, raw: unknown): McpServerSeed {
     ...(metadata.category === undefined ? {} : { category: metadata.category }),
     ...(metadata.description === undefined ? {} : { description: metadata.description }),
     ...(metadata.examples === undefined ? {} : { examples: metadata.examples }),
+    ...(metadata.translations === undefined ? {} : { translations: metadata.translations }),
   }
 }
 

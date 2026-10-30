@@ -10,9 +10,38 @@ import type { CliConnectorService } from './cli/service.js'
 import type { ConnectionService } from './connections.js'
 import { ConnectError } from './errors.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
+import type { CustomTranslations } from '../shared/types.js'
 
-export interface RouterFace {
-  register: (options: {
+function parseCustomTranslationsInput(value: unknown): CustomTranslations | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ConnectError('invalid_request', 'translations 必须是对象')
+  }
+  const out: CustomTranslations = {}
+  for (const [locale, raw] of Object.entries(value)) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new ConnectError('invalid_request', `translations.${locale} 必须是对象`)
+    }
+    const record = raw as Record<string, unknown>
+    if (record.description !== undefined && typeof record.description !== 'string') {
+      throw new ConnectError('invalid_request', `translations.${locale}.description 必须是字符串`)
+    }
+    if (record.category !== undefined && typeof record.category !== 'string') {
+      throw new ConnectError('invalid_request', `translations.${locale}.category 必须是字符串`)
+    }
+    if (record.examples !== undefined && (!Array.isArray(record.examples) || record.examples.some(item => typeof item !== 'string'))) {
+      throw new ConnectError('invalid_request', `translations.${locale}.examples 必须是字符串数组`)
+    }
+    out[locale] = {
+      ...(typeof record.description === 'string' ? { description: record.description } : {}),
+      ...(typeof record.category === 'string' ? { category: record.category } : {}),
+      ...(Array.isArray(record.examples) ? { examples: record.examples as string[] } : {}),
+    }
+  }
+  return out
+}
+
+export interface RouterFace {  register: (options: {
     kind: 'prefix' | 'exact'
     path: string
     handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
@@ -358,6 +387,7 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
           category?: unknown
           description?: unknown
           examples?: unknown
+          translations?: unknown
         }
         if (typeof body.json !== 'string' || body.json.trim() === '') {
           throw new ConnectError('invalid_request', '缺少 mcpServers JSON')
@@ -374,10 +404,12 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
         if (body.examples !== undefined && (!Array.isArray(body.examples) || body.examples.some(item => typeof item !== 'string'))) {
           throw new ConnectError('invalid_request', 'examples 必须是字符串数组')
         }
+        const translations = parseCustomTranslationsInput(body.translations)
         const connectors = await options.connections.importCustom(body.json, body.allowPrivate === true, {
           ...(body.category === undefined ? {} : { category: body.category }),
           ...(body.description === undefined ? {} : { description: body.description }),
           ...(body.examples === undefined ? {} : { examples: body.examples as string[] }),
+          ...(translations === undefined ? {} : { translations }),
         })
         json(res, 200, { ok: true, value: { connectors } })
         return
@@ -402,6 +434,7 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
           category?: unknown
           description?: unknown
           examples?: unknown
+          translations?: unknown
         }
         if (typeof body.json !== 'string' || body.json.trim() === '') {
           throw new ConnectError('invalid_request', '缺少 mcpServers JSON')
@@ -418,6 +451,7 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
         if (body.examples !== undefined && (!Array.isArray(body.examples) || body.examples.some(item => typeof item !== 'string'))) {
           throw new ConnectError('invalid_request', 'examples 必须是字符串数组')
         }
+        const translations = parseCustomTranslationsInput(body.translations)
         const result = await options.connections.updateCustom(
           decodeURIComponent(updateCustomId),
           body.json,
@@ -426,6 +460,7 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
             ...(body.category === undefined ? {} : { category: body.category }),
             ...(body.description === undefined ? {} : { description: body.description }),
             ...(body.examples === undefined ? {} : { examples: body.examples as string[] }),
+            ...(translations === undefined ? {} : { translations }),
           },
         )
         json(res, 200, { ok: true, value: result })
