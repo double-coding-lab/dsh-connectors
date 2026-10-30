@@ -29,7 +29,7 @@
   },
   "translations": {
     "en": {
-      "summary": "Search official Microsoft Learn docs, tutorials, and code samples. No credentials required.",
+      "summary": "Search official Microsoft Learn docs, tutorials, and code samples.",
       "description": "Official Microsoft Learn MCP service for Azure, .NET, Microsoft 365, and related docs, tutorials, and samples.",
       "examples": [
         "Find how to deploy Azure Functions with Node.js on Microsoft Learn",

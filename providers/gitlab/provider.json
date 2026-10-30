@@ -35,7 +35,7 @@
   },
   "translations": {
     "en": {
-      "summary": "Connect through the official GitLab.com MCP and authorize once for projects, issues, and merge requests.",
+      "summary": "Official GitLab.com MCP for projects, issues, and merge requests.",
       "description": "Official GitLab.com MCP service for projects, issues, merge requests, wikis, and CI. Click install and finish GitLab authorization in the browser; the token stays on this machine.",
       "examples": [
         "Show open merge requests in group/project, sorted by update time",

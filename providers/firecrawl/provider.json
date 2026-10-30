@@ -39,7 +39,7 @@
   },
   "translations": {
     "en": {
-      "summary": "Scrape pages, crawl sites, and extract structured data as Markdown or JSON for agents.",
+      "summary": "Scrape pages, crawl sites, and extract structured data for agents.",
       "description": "Official Firecrawl MCP service: page scraping, site crawling and mapping, web search, structured extraction, and scheduled monitoring. Sign in to Firecrawl in the browser and choose a team; the token stays on this machine.",
       "examples": [
         "Scrape this product page to Markdown, keeping the title and price table",

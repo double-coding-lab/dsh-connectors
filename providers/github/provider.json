@@ -36,7 +36,7 @@
   },
   "translations": {
     "en": {
-      "summary": "Connect through the official GitHub MCP and use a PAT for repositories, issues, and pull requests.",
+      "summary": "Official GitHub MCP for repositories, issues, and pull requests.",
       "description": "Official GitHub MCP service with repository, issue, pull request, and code search tools. Paste a GitHub PAT during installation; the token stays on this machine.",
       "examples": [
         "Explain what owner/repo does and list its main directories and stack",

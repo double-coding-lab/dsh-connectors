@@ -43,7 +43,7 @@
   },
   "translations": {
     "en": {
-      "summary": "Enter the MCP URL of a self-hosted GitLab and connect with OAuth.",
+      "summary": "Connect a self-hosted GitLab MCP endpoint with OAuth.",
       "description": "Official MCP service for a self-hosted GitLab instance. Enter the full MCP endpoint; the instance must support OAuth dynamic client registration. Click install and finish authorization in the browser; the token stays on this machine.",
       "examples": [
         "Show open merge requests in group/project, sorted by update time",

@@ -35,7 +35,7 @@
   },
   "translations": {
     "en": {
-      "summary": "Give agents file listing, search, organization, and sharing for Baidu Netdisk.",
+      "summary": "List, search, organize, and share Baidu Netdisk files with agents.",
       "description": "Official Baidu Netdisk MCP service (SSE): file and document/image/video listings, file details, keyword and semantic search, create/copy/move/rename/delete, share links, capacity, and account info. Connect with the official personal token: open the authorization link and paste the access token into the card. No app or callback setup. SSE mode does not include local uploads.",
       "examples": [
         "Show files changed recently in my Netdisk root, grouped by type",

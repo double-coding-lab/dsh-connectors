@@ -29,7 +29,7 @@ dsh-connectors is the **Connectors** panel for DeepSeek Harness. It includes 27 
 
 ## UI and demo
 
-![Connector panel](https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/panel.webp)
+![Connector panel](https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/panel-en.webp)
 
 Browse by category or search, then click the plus button on a card to install.
 
