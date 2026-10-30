@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 import type { Context } from '@deepseek-ai/cordis'
 
 import { loadBuiltinCatalog } from './host/catalog.js'
@@ -5,8 +7,10 @@ import { CliConnectorService, type CliServiceContext } from './host/cli/service.
 import { ConnectionService, type ConnectionContext } from './host/connections.js'
 import { registerRoutes } from './host/routes.js'
 
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
+
 export const name = 'dsh-connectors'
-export const version = '0.1.0'
+export const version = pkg.version
 export const inject = ['tools', 'storageDomain', 'loader', 'webServer']
 
 const SERVICES = ['tools', 'storageDomain', 'loader', 'webServer'] as const
