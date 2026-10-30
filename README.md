@@ -4,7 +4,9 @@
 
 <p align="center">
   <strong>简体中文</strong> · <a href="./README.en.md">English</a>
-  &nbsp;·&nbsp;
+</p>
+
+<p align="center">
   <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm 0.1.0" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/npm.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub: double-coding-lab/dsh-connectors" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/github.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors/blob/main/LICENSE"><img alt="MIT" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/mit.svg"></a>
