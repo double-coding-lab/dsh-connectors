@@ -12,7 +12,7 @@ import { ROUTE_PREFIX } from '../shared/types.js'
 import { CLI_ICONS } from './cli-icons.generated.js'
 import { IconAlert, IconCheck, IconChevronDown, IconClose, IconCopy, IconEye, IconEyeOff, IconHelp, IconLink, IconMore, IconPencil, IconPlay, IconPlug, IconPlus, IconRefresh, IconSearch, IconServer, IconTrash } from './icons.js'
 import { PROVIDER_ICONS } from './provider-icons.generated.js'
-import { BUILTIN_CATEGORIES, canonicalizeCardCategories, parseExampleLines } from '../shared/categories.js'
+import { BUILTIN_CATEGORIES, canonicalBuiltinCategory, canonicalizeCardCategories, parseExampleLines } from '../shared/categories.js'
 import { CUSTOM_SECRET_PLACEHOLDER } from '../shared/customConfig.js'
 
 export const inject: string[] = ['locale']
@@ -41,7 +41,7 @@ function localizedCard(card: ConnectorCard): ConnectorCard {
       summary: description ?? customSummary(card),
       ...(description === undefined ? {} : { description }),
       examples: copy?.examples ?? card.examples,
-      categoryLabel: english ? copy?.category ?? card.category : card.category,
+      categoryLabel: english ? copy?.category ?? tr(card.category) : card.category,
     }
   }
   if (!english) return { ...card, categoryLabel: card.category }
@@ -99,7 +99,7 @@ const MCP_SERVERS_PLACEHOLDER_EN = `{
       "headers": { "Authorization": "Bearer ..." },
       "x-dsh": {
         "description": "Inspect repository structure and docs",
-        "category": "Search & knowledge",
+        "category": "知识检索",
         "examples": ["Use my-server to look up the latest docs"]
       }
     }
@@ -107,12 +107,11 @@ const MCP_SERVERS_PLACEHOLDER_EN = `{
 }`
 const X_DSH_SAMPLE_EN = `"x-dsh": {
   "description": "Inspect repository structure and docs",
-  "category": "Search & knowledge",
+  "category": "知识检索",
   "examples": ["Use DeepWiki to inspect the facebook/react repository structure"],
   "translations": {
     "zh": {
       "description": "查询仓库结构与文档",
-      "category": "知识检索",
       "examples": ["用 DeepWiki 查 facebook/react 的仓库结构"]
     }
   }
@@ -5418,6 +5417,8 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
   const previewMetaEn = parsedJson.metaEn
   const hasJsonMeta = jsonMeta !== null || previewMetaEn !== null
   const previewMeta = jsonMeta
+  const effectiveCategory = category.trim() === '' ? previewMeta?.category ?? '其他' : category.trim()
+  const englishCategoryAutomatic = canonicalBuiltinCategory(effectiveCategory) !== undefined
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -5490,9 +5491,10 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
     setError(null)
     const exampleLines = parseExampleLines(examples)
     const exampleLinesEn = parseExampleLines(examplesEn)
+    const categoryTranslation = englishCategoryAutomatic ? '' : categoryEn.trim()
     const enTranslations = {
       ...(descriptionEn.trim() === '' ? {} : { description: descriptionEn.trim() }),
-      ...(categoryEn.trim() === '' ? {} : { category: categoryEn.trim() }),
+      ...(categoryTranslation === '' ? {} : { category: categoryTranslation }),
       ...(exampleLinesEn.length === 0 ? {} : { examples: exampleLinesEn }),
     }
     const translations = Object.keys(enTranslations).length === 0 ? undefined : { en: enTranslations }
@@ -5628,7 +5630,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
                 className={metaLang === 'zh' ? 'dshc-lang-option dshc-lang-option-active' : 'dshc-lang-option'}
                 onClick={() => setMetaLang('zh')}
               >
-                中文
+                {tr('中文')}
               </button>
               <button
                 type="button"
@@ -5724,19 +5726,23 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
                 onChange={event => setDescriptionEn(event.target.value)}
               />
             </label>
-            <label className="dshc-field">
-              <span>{tr('英文分类显示名（可选）')}</span>
-              <input
-                autoComplete="off"
-                maxLength={64}
-                placeholder={previewMetaEn?.category === undefined
-                  ? tr('留空使用中文分类')
-                  : tr("JSON 中：{v0}", { v0: previewMetaEn.category })}
-                value={categoryEn}
-                onChange={event => setCategoryEn(event.target.value)}
-              />
-              <p className="dshc-dialog-hint">{tr('仅用于显示，不改变分类分组。')}</p>
-            </label>
+            {englishCategoryAutomatic ? (
+              <p className="dshc-dialog-hint">{tr('内置分类会自动使用标准英文名称。')}</p>
+            ) : (
+              <label className="dshc-field">
+                <span>{tr('英文分类显示名（可选）')}</span>
+                <input
+                  autoComplete="off"
+                  maxLength={64}
+                  placeholder={previewMetaEn?.category === undefined
+                    ? tr('留空使用中文分类')
+                    : tr("JSON 中：{v0}", { v0: previewMetaEn.category })}
+                  value={categoryEn}
+                  onChange={event => setCategoryEn(event.target.value)}
+                />
+                <p className="dshc-dialog-hint">{tr('仅用于显示，不改变分类分组。')}</p>
+              </label>
+            )}
             <label className="dshc-field">
               <span>{tr('英文示例提示词（可选，每行一条）')}</span>
               <textarea
