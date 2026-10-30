@@ -1,3 +1,7 @@
+<p align="center">
+  <strong>简体中文</strong> · <a href="./CONTRIBUTING.en.md">English</a>
+</p>
+
 # 贡献 Provider
 
 `dsh-connectors` 的内置 provider 只包含数据：新增一个 provider 就是加一个目录，不用改核心代码。契约文件是 [`schema/provider.schema.json`](schema/provider.schema.json)。
@@ -165,7 +169,7 @@ UI 会在授权表单里展示该链接与提示。链接必须是厂商官方�
 
 ## 发布
 
-1. 修改 `package.json` 的 `version`，提交到 `main`。
+1. 修改 `package.json` 的 `version`，同步更新 `assets/readme/badges/npm.svg`（重新下载 npm 徽章），提交到 `main`。
 2. 打同名 tag（`vX.Y.Z`）并推送到 GitHub。
 3. 在 GitHub 创建该 tag 的 Release。`publish-npm.yml` 会跑 `npm run check`，然后发布到 npm（Trusted Publishing + provenance）。
 4. 首次发布需要先在本地执行一次 `npm login --registry=https://registry.npmjs.org` 和 `npm publish --access public` 创建包，再到 npm 包设置里配置 Trusted Publishing：organization `double-coding-lab`、repository `dsh-connectors`、workflow `publish-npm.yml`。

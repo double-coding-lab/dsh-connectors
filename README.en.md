@@ -4,13 +4,11 @@
 
 <p align="center">
   <a href="./README.md">简体中文</a> · <strong>English</strong>
-</p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm" src="https://img.shields.io/npm/v/@double-coding/dsh-connectors"></a>
-  <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub" src="https://img.shields.io/github/stars/double-coding-lab/dsh-connectors?style=flat"></a>
-  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-111827">
-  <img alt="DeepSeek Harness 0.2" src="https://img.shields.io/badge/DSH-0.2.1%20rc-1F8A5B">
+  &nbsp;·&nbsp;
+  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm 0.1.0" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/npm.svg"></a>
+  <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub: double-coding-lab/dsh-connectors" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/github.svg"></a>
+  <a href="https://github.com/double-coding-lab/dsh-connectors/blob/main/LICENSE"><img alt="MIT" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/mit.svg"></a>
+  <img alt="DSH 0.2.x" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/dsh.svg">
 </p>
 
 dsh-connectors is the **Connectors** panel for DeepSeek Harness. It includes 27 MCP connectors and 6 CLI connectors (DingTalk, Feishu, Tencent Meeting, WeCom, Hugging Face, Agent Mail). OAuth runs in your browser, credentials stay on your machine, and connected tools show up in your conversations.
@@ -47,21 +45,23 @@ The plugin ships 27 MCP providers and 6 CLI connectors. The category table cover
 
 | Category | Connectors |
 | --- | --- |
-| Developer tools (9) | GitHub, GitLab, self-hosted GitLab, Gitee, Postman, CircleCI, Yunxiao, Sourcegraph, Cloudflare Docs |
-| Search & knowledge (7) | Context7, Microsoft Learn, DeepWiki, Firecrawl, Tavily, Tencent Yuanbao Search, Amap |
-| Productivity (3) | Notion, Tencent Docs, Baidu Netdisk |
-| Analytics (3) | PostHog, Tianyancha, QCC |
-| Security & ops (2) | Sentry, Grafana |
-| Databases (2) | Neon, Supabase |
-| Project management (1) | Linear |
-| CLI (6) | DingTalk, Feishu, Tencent Meeting, WeCom, Hugging Face, Agent Mail |
+| Developer tools | GitHub, GitLab, self-hosted GitLab, Gitee, Postman, CircleCI, Yunxiao, Sourcegraph, Cloudflare Docs |
+| Search & knowledge | Context7, Microsoft Learn, DeepWiki, Firecrawl, Tavily, Tencent Yuanbao Search, Amap |
+| Productivity | Notion, Tencent Docs, Baidu Netdisk |
+| Analytics | PostHog, Tianyancha, QCC |
+| Security & ops | Sentry, Grafana |
+| Databases | Neon, Supabase |
+| Project management | Linear |
+| CLI | DingTalk, Feishu, Tencent Meeting, WeCom, Hugging Face, Agent Mail |
 
-| Auth method | Count | How it works | Examples |
-| --- | --- | --- | --- |
-| OAuth 2.0 (DCR + PKCE) | 16 | Browser authorization with automatic token refresh | GitLab, Notion, Firecrawl, Tencent Docs |
-| API key / token | 6 | Paste a key in the token dialog; sent as a Bearer header | GitHub, Grafana, Baidu Netdisk |
-| No credentials | 5 | The card asks for no credential; connect directly after install | Context7, Microsoft Learn, DeepWiki |
-| CLI + Skills | 6 | Runs the vendor CLI; login, update, and uninstall in the panel; no remote MCP server | DingTalk, Feishu, Hugging Face |
+By auth method: OAuth 2.0 (16), API key or token (6), no credentials (5), CLI + Skills (6).
+
+| Auth method | How it works | Examples |
+| --- | --- | --- |
+| OAuth 2.0 (DCR + PKCE) | Browser authorization with automatic token refresh | GitLab, Notion, Firecrawl, Tencent Docs |
+| API key / token | Paste a key in the token dialog; sent as a Bearer header | GitHub, Grafana, Baidu Netdisk |
+| No credentials | The card asks for no credential; connect directly after install | Context7, Microsoft Learn, DeepWiki |
+| CLI + Skills | Runs the vendor CLI; login, update, and uninstall in the panel; no remote MCP server | DingTalk, Feishu, Hugging Face |
 
 ## Install
 
@@ -138,7 +138,7 @@ Then run:
 npm run check
 ```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) (Chinese) and [provider.schema.json](./schema/provider.schema.json) for the contract, auth types, OAuth registration, and the PR checklist. Providers cannot contain executable code; use the in-app **Custom connector** for local stdio or private endpoints.
+See [CONTRIBUTING.en.md](./CONTRIBUTING.en.md) and [provider.schema.json](./schema/provider.schema.json) for the contract, auth types, OAuth registration, and the PR checklist. Providers cannot contain executable code; use the in-app **Custom connector** for local stdio or private endpoints.
 
 ## Security and limits
 
@@ -149,7 +149,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) (Chinese) and [provider.schema.json](./
 
 ## Contributing
 
-Open a PR for a new official MCP provider, a fix, or a docs change. Read [CONTRIBUTING.md](./CONTRIBUTING.md) before adding a provider.
+Open a PR for a new official MCP provider, a fix, or a docs change. Read [CONTRIBUTING.en.md](./CONTRIBUTING.en.md) before adding a provider.
 
 ## License
 

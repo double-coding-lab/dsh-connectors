@@ -4,13 +4,11 @@
 
 <p align="center">
   <strong>简体中文</strong> · <a href="./README.en.md">English</a>
-</p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm" src="https://img.shields.io/npm/v/@double-coding/dsh-connectors"></a>
-  <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub" src="https://img.shields.io/github/stars/double-coding-lab/dsh-connectors?style=flat"></a>
-  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-111827">
-  <img alt="DeepSeek Harness 0.2" src="https://img.shields.io/badge/DSH-0.2.1%20rc-1F8A5B">
+  &nbsp;·&nbsp;
+  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm 0.1.0" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/npm.svg"></a>
+  <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub: double-coding-lab/dsh-connectors" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/github.svg"></a>
+  <a href="https://github.com/double-coding-lab/dsh-connectors/blob/main/LICENSE"><img alt="MIT" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/mit.svg"></a>
+  <img alt="DSH 0.2.x" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/dsh.svg">
 </p>
 
 dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP 连接器和 6 个 CLI 连接器（钉钉、飞书、腾讯会议、企业微信、Hugging Face、Agent Mail）。OAuth 在浏览器里完成，凭据只保存在本机；连上后就能在对话里调用这些工具。
@@ -47,21 +45,23 @@ dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP
 
 | 分类 | 连接器 |
 | --- | --- |
-| 开发工具（9） | GitHub、GitLab、GitLab 自建、Gitee、Postman、CircleCI、云效、Sourcegraph、Cloudflare Docs |
-| 知识检索（7） | Context7、Microsoft Learn、DeepWiki、Firecrawl、Tavily、腾讯元宝搜索、高德地图 |
-| 办公协作（3） | Notion、腾讯文档、百度网盘 |
-| 数据分析（3） | PostHog、天眼查、企查查 |
-| 安全运维（2） | Sentry、Grafana |
-| 数据库（2） | Neon、Supabase |
-| 项目管理（1） | Linear |
-| CLI（6） | 钉钉、飞书、腾讯会议、企业微信、Hugging Face、Agent Mail |
+| 开发工具 | GitHub、GitLab、GitLab 自建、Gitee、Postman、CircleCI、云效、Sourcegraph、Cloudflare Docs |
+| 知识检索 | Context7、Microsoft Learn、DeepWiki、Firecrawl、Tavily、腾讯元宝搜索、高德地图 |
+| 办公协作 | Notion、腾讯文档、百度网盘 |
+| 数据分析 | PostHog、天眼查、企查查 |
+| 安全运维 | Sentry、Grafana |
+| 数据库 | Neon、Supabase |
+| 项目管理 | Linear |
+| CLI | 钉钉、飞书、腾讯会议、企业微信、Hugging Face、Agent Mail |
 
-| 认证方式 | 数量 | 工作方式 | 代表连接器 |
-| --- | --- | --- | --- |
-| OAuth 2.0（DCR + PKCE） | 16 | 浏览器授权，令牌过期前自动刷新 | GitLab、Notion、Firecrawl、腾讯文档 |
-| API Key / Token | 6 | 在令牌弹窗粘贴 Key，按 Bearer 头发送 | GitHub、Grafana、百度网盘 |
-| 无需凭据 | 5 | 卡片不要求凭据，安装后直接连接 | Context7、Microsoft Learn、DeepWiki |
-| CLI + Skills | 6 | 调用厂商 CLI；登录、更新、卸载在面板里，不走远程 MCP | 钉钉、飞书、Hugging Face |
+按认证方式统计：OAuth 2.0 16 个，API Key / Token 6 个，无需凭据 5 个，CLI + Skills 6 个。
+
+| 认证方式 | 工作方式 | 代表连接器 |
+| --- | --- | --- |
+| OAuth 2.0（DCR + PKCE） | 浏览器授权，令牌过期前自动刷新 | GitLab、Notion、Firecrawl、腾讯文档 |
+| API Key / Token | 在令牌弹窗粘贴 Key，按 Bearer 头发送 | GitHub、Grafana、百度网盘 |
+| 无需凭据 | 卡片不要求凭据，安装后直接连接 | Context7、Microsoft Learn、DeepWiki |
+| CLI + Skills | 调用厂商 CLI；登录、更新、卸载在面板里，不走远程 MCP | 钉钉、飞书、Hugging Face |
 
 ## 安装
 
