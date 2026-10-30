@@ -5619,7 +5619,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
             <p className="dshc-dialog-hint">{tr("已读取 JSON 中的 x-dsh；下方留空就使用它，填写会覆盖。")}</p>
           )}
           <div className="dshc-meta-lang">
-            <span>{tr('文案语言')}</span>
+            <span>{tr('卡片文案')}</span>
             <div className="dshc-lang-switch" role="tablist">
               <button
                 type="button"

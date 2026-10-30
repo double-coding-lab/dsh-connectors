@@ -175,7 +175,7 @@ export const EN: Record<string, string> = {
   '通过 mcpServers 导入的 SSE MCP Server。': 'An SSE MCP server imported from mcpServers.',
   '通过 mcpServers 导入的 Streamable HTTP MCP Server。': 'A Streamable HTTP MCP server imported from mcpServers.',
   'CLI 版本': 'CLI version',
-  '文案语言': 'Copy language',
+  '卡片文案': 'Card text',
   '英文描述（可选）': 'English description (optional)',
   '留空使用中文描述': 'Leave blank to use the Chinese description',
   '英文分类显示名（可选）': 'English category label (optional)',
