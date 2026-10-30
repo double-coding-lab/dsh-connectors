@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/hero-en.svg" width="100%" alt="dsh-connectors: an MCP and CLI connector panel for DeepSeek Harness">
+  <img src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/hero-en.svg" width="100%" alt="dsh-connectors: an MCP and CLI connector panel for DeepSeek Harness">
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@ dsh-connectors is the **Connectors** panel for DeepSeek Harness. It includes 27 
 ## Architecture
 
 <p align="center">
-  <img src="./assets/readme/architecture.webp" width="100%" alt="dsh-connectors architecture: panel, plugin host, DSH runtime, and external services">
+  <img src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/architecture.webp" width="100%" alt="dsh-connectors architecture: panel, plugin host, DSH runtime, and external services">
 </p>
 
 - The panel talks to the plugin host over `/dsh-connectors/api/*`; no token is kept in the browser.
@@ -27,7 +27,7 @@ dsh-connectors is the **Connectors** panel for DeepSeek Harness. It includes 27 
 
 ## UI and demo
 
-![Connector panel](./assets/readme/panel.webp)
+![Connector panel](https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/panel.webp)
 
 Browse by category or search, then click the plus button on a card to install.
 

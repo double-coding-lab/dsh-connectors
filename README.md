@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="dsh-connectors：DeepSeek Harness 的 MCP 与 CLI 连接器面板">
+  <img src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/hero.svg" width="100%" alt="dsh-connectors：DeepSeek Harness 的 MCP 与 CLI 连接器面板">
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@ dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP
 ## 架构
 
 <p align="center">
-  <img src="./assets/readme/architecture.webp" width="100%" alt="dsh-connectors 架构：面板、插件宿主、DSH 运行时与外部服务">
+  <img src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/architecture.webp" width="100%" alt="dsh-connectors 架构：面板、插件宿主、DSH 运行时与外部服务">
 </p>
 
 - 面板通过 `/dsh-connectors/api/*` 调插件宿主，不在浏览器里保存任何令牌。
@@ -27,7 +27,7 @@ dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP
 
 ## 界面与演示
 
-![连接器面板](./assets/readme/panel.webp)
+![连接器面板](https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/panel.webp)
 
 按分类浏览、搜索，点卡片右下角的加号安装。
 
