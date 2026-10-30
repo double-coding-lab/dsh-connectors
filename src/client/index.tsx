@@ -262,6 +262,8 @@ async function writeClipboard(text: string): Promise<void> {
   if (!copied) throw new Error('copy failed')
 }
 
+type CliAction = 'install' | 'login' | 'logout' | 'cancel'
+
 interface PanelProps {
   startTrial: (prompt: string) => void
   variant?: 'panel' | 'overlay'
@@ -1343,7 +1345,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
   const [cliUpdateError, setCliUpdateError] = useState<string | null>(null)
   const [cliUninstallPending, setCliUninstallPending] = useState(false)
   const [cliUninstallError, setCliUninstallError] = useState<string | null>(null)
-  const [cliBusyId, setCliBusyId] = useState<string | null>(null)
+  const [cliBusy, setCliBusy] = useState<{ id: string; action: CliAction } | null>(null)
   const [cliTogglePending, setCliTogglePending] = useState<string | null>(null)
   const [cliFlow, setCliFlow] = useState<{ id: string; action: 'install' | 'login' } | null>(null)
   const [cliErrorId, setCliErrorId] = useState<string | null>(null)
@@ -1482,8 +1484,8 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
     })
   }
 
-  const runCliAction = (id: string, action: 'install' | 'login' | 'logout' | 'cancel'): void => {
-    setCliBusyId(id)
+  const runCliAction = (id: string, action: CliAction): void => {
+    setCliBusy({ id, action })
     void (async () => {
       try {
         const response = await request<CliConnectorPayload>(`${ROUTE_PREFIX}/api/cli/${encodeURIComponent(id)}/${action}`, {
@@ -1497,7 +1499,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
       } catch (cause) {
         setCliError(cause instanceof Error ? cause.message : String(cause))
       } finally {
-        setCliBusyId(null)
+        setCliBusy(null)
       }
     })()
   }
@@ -2374,7 +2376,8 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
     key={connector.id}
     connector={connector}
     togglePending={cliTogglePending === connector.id}
-    pending={cliBusyId === connector.id}
+    pending={cliBusy?.id === connector.id}
+    pendingAction={cliBusy?.id === connector.id ? cliBusy.action : undefined}
     onOpen={() => setCliDetailId(connector.id)}
     onInstall={() => setCliInstallId(connector.id)}
     onLogin={() => runCliAction(connector.id, 'login')}
@@ -2622,7 +2625,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
       {cliInstall !== null && (
         <CliInstallDialog
           connector={cliInstall}
-          pending={cliBusyId === cliInstall.id}
+          pending={cliBusy?.id === cliInstall.id}
           onClose={() => setCliInstallId(null)}
           onConfirm={() => runCliAction(cliInstall.id, 'install')}
           onCancel={() => runCliAction(cliInstall.id, 'cancel')}
@@ -2700,6 +2703,7 @@ interface CliCardViewProps {
   connector: CliConnectorView
   togglePending: boolean
   pending: boolean
+  pendingAction?: CliAction
   onOpen: () => void
   onInstall: () => void
   onLogin: () => void
@@ -2716,7 +2720,7 @@ interface CliCardViewProps {
   onOpenUpdate: () => void
 }
 
-function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onLogin, onLogout, onOpenInstall, onOpenLogin, onToggle, onTrial, onOpenError, onCancel, onUninstall, onOpenUninstall, onUpdate, onOpenUpdate }: CliCardViewProps): JSX.Element {
+function CliCardView({ connector, togglePending, pending, pendingAction, onOpen, onInstall, onLogin, onLogout, onOpenInstall, onOpenLogin, onToggle, onTrial, onOpenError, onCancel, onUninstall, onOpenUninstall, onUpdate, onOpenUpdate }: CliCardViewProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuAbove, setMenuAbove] = useState(false)
   const [tip, setTip] = useState<CardTip | null>(null)
@@ -2731,18 +2735,23 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
   const connected = connector.installed && connector.authenticated
   const canTry = connected && enabled && connector.skills.installed && !busy
   const error = !busy && connector.phase === 'error' && connector.lastError !== undefined ? connector.lastError : undefined
-  const busyLabel = connector.phase === 'installing'
-    ? tr('安装中…')
-    : connector.phase === 'updating'
-      ? tr('更新中…')
-      : connector.phase === 'uninstalling'
-        ? tr('卸载中…')
-        : connector.phase === 'configuring' ? tr('配置中…') : tr('登录中…')
-  const busyProgress = connector.phase === 'installing'
-    ? tr('安装进度')
-    : connector.phase === 'updating'
-      ? tr('更新进度')
-      : connector.phase === 'uninstalling' ? tr('卸载进度') : tr('登录进度')
+  const loggingOut = pendingAction === 'logout'
+  const busyLabel = loggingOut
+    ? tr('解绑中…')
+    : connector.phase === 'installing'
+      ? tr('安装中…')
+      : connector.phase === 'updating'
+        ? tr('更新中…')
+        : connector.phase === 'uninstalling'
+          ? tr('卸载中…')
+          : connector.phase === 'configuring' ? tr('配置中…') : tr('登录中…')
+  const busyProgress = loggingOut
+    ? tr('解绑进度')
+    : connector.phase === 'installing'
+      ? tr('安装进度')
+      : connector.phase === 'updating'
+        ? tr('更新进度')
+        : connector.phase === 'uninstalling' ? tr('卸载进度') : tr('登录进度')
   const stateLabel = busy
     ? tr('，处理中')
     : !connector.installed
@@ -2965,24 +2974,34 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
               </span>
             </span>
           ) : (
-            <span className={busy ? 'dshc-card-actions dshc-card-actions-busy' : 'dshc-card-actions'}>
+            <span className={`${busy ? 'dshc-card-actions dshc-card-actions-busy' : 'dshc-card-actions'}${loggingOut ? ' dshc-card-actions-logging-out' : ''}`}>
               {busy
-                ? <button
-                    type="button"
-                    className="dshc-card-auth"
-                    title={connector.stage ?? busyLabel}
-                    aria-label={tr("查看 {v0} {v1}", { v0: connector.name, v1: busyProgress })}
-                    onClick={event => {
-                      event.stopPropagation()
-                      if (connector.phase === 'installing') onOpenInstall()
-                      else if (connector.phase === 'updating') onOpenUpdate()
-                      else if (connector.phase === 'uninstalling') onOpenUninstall()
-                      else onOpenLogin()
-                    }}
-                  >
-                    <Spinner inline />
-                    {busyLabel}
-                  </button>
+                ? loggingOut
+                  ? <span
+                      className="dshc-card-auth dshc-card-auth-progress"
+                      role="status"
+                      title={tr('解绑中…')}
+                      aria-label={tr("{v0} 解绑中", { v0: connector.name })}
+                    >
+                      <Spinner inline />
+                      {busyLabel}
+                    </span>
+                  : <button
+                      type="button"
+                      className="dshc-card-auth"
+                      title={connector.stage ?? busyLabel}
+                      aria-label={tr("查看 {v0} {v1}", { v0: connector.name, v1: busyProgress })}
+                      onClick={event => {
+                        event.stopPropagation()
+                        if (connector.phase === 'installing') onOpenInstall()
+                        else if (connector.phase === 'updating') onOpenUpdate()
+                        else if (connector.phase === 'uninstalling') onOpenUninstall()
+                        else onOpenLogin()
+                      }}
+                    >
+                      <Spinner inline />
+                      {busyLabel}
+                    </button>
                 : error !== undefined
                   ? <button
                       type="button"
@@ -6049,6 +6068,9 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-card-auth:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dshc-card-auth:disabled{opacity:.4;cursor:not-allowed}
 .dshc-card-auth:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
+.dshc-card-auth.dshc-card-auth-progress{cursor:default}
+.dshc-card-auth.dshc-card-auth-progress:hover{background:transparent;color:var(--dsw-alias-label-secondary)}
+.dshc-card-actions-logging-out .dshc-card-controls{display:none}
 .dshc-card-installed{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex:none;border:.5px solid var(--dsw-alias-border-l3);border-radius:50%;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);box-shadow:0 1px 2px color-mix(in srgb,#000 6%,transparent)}
 .dshc-card-actions{display:flex;align-items:center;flex:none}
 .dshc-card-toggle{display:inline-flex;align-items:center;justify-content:center;width:28px;height:16px;flex:none}
