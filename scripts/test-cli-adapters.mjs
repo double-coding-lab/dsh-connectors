@@ -14,6 +14,7 @@ const agentMail = CLI_ADAPTERS['agent-mail']
 assert.ok(dingtalk.install.some(step => step.args.includes('dingtalk-workspace-cli')), 'dingtalk install package')
 assert.ok(dingtalk.uninstall.some(step => step.args.includes('uninstall') && step.args.includes('dingtalk-workspace-cli')), 'dingtalk uninstall package')
 assert.ok(dingtalk.auth.login.args.includes('--device'), 'dingtalk device login')
+assert.ok(dingtalk.auth.login.args.includes('--no-browser'), 'dingtalk login prints url instead of opening browser')
 assert.ok(dingtalk.auth.status.args.includes('--format') && dingtalk.auth.status.args.includes('json'), 'dingtalk json status')
 
 assert.ok(feishu.install.some(step => step.args.includes('@larksuite/cli')), 'feishu cli install')

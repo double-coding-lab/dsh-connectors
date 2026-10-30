@@ -443,7 +443,7 @@ export const CLI_ADAPTERS: Record<CliConnectorId, CliAdapter> = {
       expected: ['dingtalk-aitable', 'dingtalk-calendar', 'dingtalk-chat', 'dingtalk-contact', 'dingtalk-doc', 'dingtalk-drive', 'dingtalk-todo', 'dingtalk-wiki'],
     },
     auth: {
-      login: { command: 'dws', args: ['auth', 'login', '--device', '--recommend'] },
+      login: { command: 'dws', args: ['auth', 'login', '--device', '--recommend', '--no-browser'] },
       status: { command: 'dws', args: ['auth', 'status', '--format', 'json'] },
       logout: { command: 'dws', args: ['auth', 'logout'] },
     },
