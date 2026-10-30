@@ -59,8 +59,19 @@ jobs:
       - name: Verify package contents
         run: npm pack --dry-run
 
+      - name: Check whether this version is already published
+        id: published
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@double-coding/dsh-connectors@${VERSION}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Requires npm Trusted Publishing for this package:
       # npmjs.com → package → Settings → Trusted publishing → GitHub Actions
       # Organization: double-coding-lab, Repository: dsh-connectors, Workflow: publish-npm.yml
       - name: Publish with provenance
+        if: steps.published.outputs.exists != 'true'
         run: npm publish --access public --provenance
