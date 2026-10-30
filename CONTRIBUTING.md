@@ -1,21 +1,20 @@
 # 贡献 Provider
 
-`dsh-connectors` 的内置 provider 是**纯数据**：新增一个 provider 只需要加一个目录，不需要改核心代码。契约文件是 [`schema/provider.schema.json`](schema/provider.schema.json)。
+`dsh-connectors` 的内置 provider 只包含数据：新增一个 provider 就是加一个目录，不用改核心代码。契约文件是 [`schema/provider.schema.json`](schema/provider.schema.json)。
 
 ## 我们接受什么
 
-- 厂商官方的远程 MCP 服务；普通 provider 地址必须是 `https://`。
-- 需要用户填写完整 MCP 地址的 provider 使用 `instance` 描述，地址在运行时由用户提供（可 https/http/内网），`auth` 可以是四类中的任意一种。
-- `auth` 四选一：`none`、`bearer`、`header`、`oauth2`。
-- provider 目录内的静态描述、示例与可选图标。
-- 真实凭据下验证过能连上并注册工具。
+- 厂商官方的远程 MCP 服务；普通 provider 的地址必须是 `https://`。
+- 需要用户填写完整 MCP 地址的服务用 `instance` 描述，地址在运行时提供（可 https / http / 内网），`auth` 可选 `none`、`bearer`、`header`、`oauth2`。
+- 目录内的静态描述、示例和可选图标。
+- 用真实凭据验证过能连接并注册工具。
 
 ## 我们不接受什么
 
 - provider 携带可执行代码、构建脚本或运行时注入逻辑。
 - 把 token / client secret / 固定内网地址写进 `provider.json`。
 - 非 `instance` 的 `http://` 地址、代理服务或非官方转接端点（这类场景请使用面板里的「自定义连接器」导入）。
-- 遥测、上报、远程配置。
+- 遥测、数据上报或远程配置。
 
 ## 目录结构
 
@@ -67,9 +66,6 @@ npm run check
 
 规则：
 
-- `auth.oauth2` 还支持 `registration: "user"`（用户在面板填写 AppKey/SecretKey）配 `endpoints`、`authorizeParams`、`tokenMethod: "GET"`、`pkce: false`，用于不支持 DCR、且由用户自建应用的服务。
-- `server.transport` 支持 `streamable-http` 与旧版 `sse`；`sse` 地址同样必须是 https，由插件内置的 stdio 桥转接到 `@deepseek-ai/dsh-mcp-client`，不需要额外代码。
-
 - `instance.label` 必填；`placeholder` / `hint` / `help` 可选。`help` 用于在地址弹窗里提供获取地址的官方指引（`{ url, label, hint? }`，url 必须是 https）。
 - 带 `instance` 时禁止设置 `server.url`；完整地址由用户填写。
 - 用户填写的地址在运行时校验：允许 http/https 与内网，允许 query（用于 `?key=...` 这类地址），拒绝账号密码与锚点；界面会对 http 显示明文提示。
@@ -100,6 +96,10 @@ npm run check
 - `noun` 只影响界面措辞：卡片和详情的「更换地址」会变成「更换数据域」，详情提示改成「选择数据域」；不填时仍说「地址」。
 - 每个预置仍是一个独立的 MCP 端点，切换后会断开当前连接、清除旧凭据并需要重新连接，界面上要写清这一点。
 
+## 传输
+
+- `server.transport` 支持 `streamable-http` 与旧版 `sse`。`sse` 地址同样必须是 https，由插件内置的 stdio 桥转接到 `@deepseek-ai/dsh-mcp-client`，provider 不需要额外代码。
+
 ## Auth 类型
 
 | type | 适用场景 | 关键字段 |
@@ -112,9 +112,10 @@ npm run check
 OAuth 的 `registration`：
 
 - `"dcr"`：服务端支持动态客户端注册（优先）。
-- `{ "clientId": "..." }`：厂商提供公开客户端 ID，且不要求 client secret。
+- `{ "clientId": "..." }`：厂商提供公开客户端 ID，不要求 client secret。
+- `"user"`：用户在面板里填写 AppKey / SecretKey。provider 要声明 `endpoints`，可选 `authorizeParams`、`tokenMethod`、`pkce`；用于不支持 DCR、由用户自建应用的服务。
 
-元数据发现由宿主自动完成，provider 只需声明 `registration` 与 `scopes`：
+服务端提供标准 OAuth 元数据时，发现过程由宿主完成，provider 声明 `registration` 与 `scopes` 即可；`user` 模式直接使用 provider 的 `endpoints`。
 
 1. 先向 MCP 端点发送一个未授权的 `initialize`，从 401 的 `WWW-Authenticate` 里读取 `resource_metadata` 地址（RFC 9728，优先）；
 2. 没有该头时依次尝试 `{origin}/.well-known/oauth-protected-resource{path}` 与 `{resource}/.well-known/oauth-protected-resource` 两种拼法；
@@ -122,7 +123,7 @@ OAuth 的 `registration`：
 4. `scopes` 以 provider 声明为准，未声明才用资源元数据的第一个；
 5. 授权请求、换 token 和刷新 token 都会带上资源元数据里的 `resource`（RFC 8707）。天眼查会强校验它必须等于 MCP 端点，其他服务忽略即可。
 
-当前不支持 device code、mTLS、多字段凭据；这些场景请先用自定义连接器。只支持 API Key 的服务用 `bearer` / `header`；同时支持 OAuth 与 API Key 的服务，内置卡片走 OAuth，Key 用法交给自定义连接器的 `headers`。
+当前不支持 device code 和 mTLS；自定义连接器也没有多字段凭据表单。只支持 API Key 的服务用 `bearer` / `header`；同时支持 OAuth 与 API Key 的服务，内置卡片走 OAuth，Key 用法交给自定义连接器的 `headers`。
 
 ## 凭据帮助链接
 
