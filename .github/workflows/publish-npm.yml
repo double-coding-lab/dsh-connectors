@@ -63,7 +63,7 @@ jobs:
         id: published
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if npm view "@double-coding/dsh-connectors@${VERSION}" version >/dev/null 2>&1; then
+          if curl -fsS "https://registry.npmjs.org/@double-coding%2Fdsh-connectors/${VERSION}" >/dev/null; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
