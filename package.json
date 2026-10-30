@@ -1,6 +1,6 @@
 {
   "name": "@double-coding/dsh-connectors",
-  "version": "0.2.1",
+  "version": "0.2.0",
   "description": "DeepSeek Harness MCP connector panel: browse a connector catalog, connect MCP servers, manage credentials, and import mcpServers JSON.",
   "keywords": [
     "deepseek-harness",
