@@ -7,9 +7,10 @@
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm" src="https://img.shields.io/npm/v/@double-coding/dsh-connectors"></a>
+  <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub" src="https://img.shields.io/github/stars/double-coding-lab/dsh-connectors?style=flat"></a>
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-111827">
   <img alt="DeepSeek Harness 0.2" src="https://img.shields.io/badge/DSH-0.2.1%20rc-1F8A5B">
-  <img alt="27 MCP + 6 CLI" src="https://img.shields.io/badge/connectors-27%20MCP%20%2B%206%20CLI-1F8A5B">
 </p>
 
 dsh-connectors is the **Connectors** panel for DeepSeek Harness. It includes 27 MCP connectors and 6 CLI connectors (DingTalk, Feishu, Tencent Meeting, WeCom, Hugging Face, Agent Mail). OAuth runs in your browser, credentials stay on your machine, and connected tools show up in your conversations.
@@ -68,20 +69,20 @@ Requirements: Node `^22.19.0 || >=24.0.0`, DeepSeek Harness `>=0.2.0-rc.2 <0.3.0
 
 ### DSH Desktop
 
-Open **Settings → Plugins** or **Add plugin**, enter the package name `dsh-connectors` (a GitHub repo URL or a local directory also works), and install it from the dialog.
+Open **Settings → Plugins** or **Add plugin**, enter the package name `@double-coding/dsh-connectors` (a GitHub repo URL or a local directory also works), and install it from the dialog.
 
 The Desktop app manages its own profile. A terminal install into `web` or another profile will not show up in Desktop. Fully quit and restart Desktop after installation.
 
 ### dsh web
 
 ```bash
-dsh plugin --profile web add dsh-connectors
+dsh plugin --profile web add @double-coding/dsh-connectors
 ```
 
 `web` is the default web profile. If you use a custom profile, replace `web` with the name your host actually loads:
 
 ```bash
-dsh plugin --profile <profile> add dsh-connectors
+dsh plugin --profile <profile> add @double-coding/dsh-connectors
 ```
 
 Stop the running `dsh web` process and start it again; refreshing the page alone does not load the host plugin.

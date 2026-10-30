@@ -1,7 +1,26 @@
 {
-  "name": "dsh-connectors",
+  "name": "@double-coding/dsh-connectors",
   "version": "0.1.0",
   "description": "DeepSeek Harness MCP connector panel: browse a connector catalog, connect MCP servers, manage credentials, and import mcpServers JSON.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "mcp",
+    "connectors",
+    "plugins"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/double-coding-lab/dsh-connectors.git"
+  },
+  "homepage": "https://github.com/double-coding-lab/dsh-connectors#readme",
+  "bugs": {
+    "url": "https://github.com/double-coding-lab/dsh-connectors/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +43,8 @@
     "README.md",
     "README.en.md",
     "LICENSE",
-    "CONTRIBUTING.md"
+    "CONTRIBUTING.md",
+    "assets/readme"
   ],
   "dsh": {
     "bundle": {

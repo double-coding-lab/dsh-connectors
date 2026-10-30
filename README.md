@@ -7,9 +7,10 @@
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm" src="https://img.shields.io/npm/v/@double-coding/dsh-connectors"></a>
+  <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub" src="https://img.shields.io/github/stars/double-coding-lab/dsh-connectors?style=flat"></a>
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-111827">
   <img alt="DeepSeek Harness 0.2" src="https://img.shields.io/badge/DSH-0.2.1%20rc-1F8A5B">
-  <img alt="27 MCP + 6 CLI" src="https://img.shields.io/badge/connectors-27%20MCP%20%2B%206%20CLI-1F8A5B">
 </p>
 
 dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP 连接器和 6 个 CLI 连接器（钉钉、飞书、腾讯会议、企业微信、Hugging Face、Agent Mail）。OAuth 在浏览器里完成，凭据只保存在本机；连上后就能在对话里调用这些工具。
@@ -68,20 +69,20 @@ dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP
 
 ### DSH Desktop
 
-打开「设置 → 插件」或插件页的「添加插件」，输入包名 `dsh-connectors`（也支持 GitHub 仓库地址或本地目录），按提示安装。
+打开「设置 → 插件」或插件页的「添加插件」，输入包名 `@double-coding/dsh-connectors`（也支持 GitHub 仓库地址或本地目录），按提示安装。
 
 Desktop 的 profile 由应用管理。从终端装到 `web` 等其它 profile 不会出现在 Desktop 里；安装完成后完全退出并重新启动 Desktop。
 
 ### dsh web
 
 ```bash
-dsh plugin --profile web add dsh-connectors
+dsh plugin --profile web add @double-coding/dsh-connectors
 ```
 
 `web` 是默认的 Web profile。如果你自定义过 profile，把 `web` 换成宿主实际加载的名称：
 
 ```bash
-dsh plugin --profile <profile> add dsh-connectors
+dsh plugin --profile <profile> add @double-coding/dsh-connectors
 ```
 
 装完先停掉原来的 `dsh web` 进程再启动；只刷新网页不会加载后端插件。

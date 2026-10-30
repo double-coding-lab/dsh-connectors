@@ -162,3 +162,12 @@ UI 会在授权表单里展示该链接与提示。链接必须是厂商官方�
 - `schemaVersion` 当前固定为 `1`；新增能力会通过向后兼容的可选字段扩展。
 - 删除或重命名 provider id 会被视为破坏性变更，需要单独讨论。
 - 校验与目录加载逻辑在 `src/host/providers.ts`，契约在 `schema/provider.schema.json`。
+
+## 发布
+
+1. 修改 `package.json` 的 `version`，提交到 `main`。
+2. 打同名 tag（`vX.Y.Z`）并推送到 GitHub。
+3. 在 GitHub 创建该 tag 的 Release。`publish-npm.yml` 会跑 `npm run check`，然后发布到 npm（Trusted Publishing + provenance）。
+4. 首次发布需要先在本地执行一次 `npm login --registry=https://registry.npmjs.org` 和 `npm publish --access public` 创建包，再到 npm 包设置里配置 Trusted Publishing：organization `double-coding-lab`、repository `dsh-connectors`、workflow `publish-npm.yml`。
+
+只 push 不会发 npm；必须是 Release published。
