@@ -66,6 +66,8 @@ export interface CliAdapter {
     login: CliCommand
     status: CliCommand
     logout?: CliCommand
+    /** CLI 自己会打开浏览器时，宿主不再自动打开解析到的链接 */
+    opensBrowser?: boolean
   }
   /** CLI 没有 logout 子命令时，用删除本地凭据文件实现解绑 */
   logoutFiles?: {
@@ -631,6 +633,7 @@ export const CLI_ADAPTERS: Record<CliConnectorId, CliAdapter> = {
       login: { command: 'agently-cli', args: ['auth', 'login'] },
       status: { command: 'agently-cli', args: ['auth', 'status'] },
       logout: { command: 'agently-cli', args: ['auth', 'logout'] },
+      opensBrowser: true,
     },
     parseStatus: parseAgentMailStatus,
     parseLoginHint: textLoginHint,

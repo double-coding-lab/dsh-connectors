@@ -25,6 +25,7 @@ assert.ok(feishu.auth.prepare.args.includes('--new'), 'feishu config init create
 assert.equal(feishu.auth.login.args.at(-1), '--recommend', 'feishu recommend login')
 assert.deepEqual(feishu.unsetEnv, ['HERMES_HOME', 'OPENCLAW_HOME'])
 assert.equal(dingtalk.unsetEnv, undefined)
+assert.equal(agentMail.auth.opensBrowser, true, 'agent mail CLI opens its own browser')
 
 assert.ok(tmeet.install.some(step => step.args.includes('@tencentcloud/tmeet')), 'tmeet cli install')
 assert.ok(tmeet.install.some(step => step.args.includes('TencentCloud/tencentmeeting-cli')), 'tmeet skills install')

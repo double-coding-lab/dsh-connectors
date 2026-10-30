@@ -539,7 +539,7 @@ export class CliConnectorService {
       const hint = adapter.parseLoginHint(text)
       if (job.link === undefined && hint.link !== undefined) {
         job.link = hint.link
-        void openExternal(job.link)
+        if (adapter.auth.opensBrowser !== true) void openExternal(job.link)
       }
       if (job.code === undefined && hint.code !== undefined) job.code = hint.code
     }
