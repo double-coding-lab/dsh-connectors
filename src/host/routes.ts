@@ -41,6 +41,17 @@ function parseCustomTranslationsInput(value: unknown): CustomTranslations | unde
   return out
 }
 
+export function requestOAuthCallback(req: IncomingMessage): string | undefined {
+  const forwardedHost = req.headers['x-forwarded-host']
+  const host = (typeof forwardedHost === 'string' ? forwardedHost.split(',')[0]?.trim() : undefined)
+    ?? req.headers.host?.trim()
+  if (host === undefined || host === '') return undefined
+  const forwardedProto = req.headers['x-forwarded-proto']
+  const proto = (typeof forwardedProto === 'string' ? forwardedProto.split(',')[0]?.trim() : undefined) ?? 'http'
+  if (proto !== 'http' && proto !== 'https') return undefined
+  return `${proto}://${host}${ROUTE_PREFIX}/api/oauth/callback`
+}
+
 export interface RouterFace {  register: (options: {
     kind: 'prefix' | 'exact'
     path: string
@@ -297,7 +308,7 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
         if (typeof body.redirectUri !== 'string' || body.redirectUri === '') {
           throw new ConnectError('invalid_request', '缺少 redirectUri')
         }
-        const value = await options.connections.startOAuth(body.connectorId, body.redirectUri)
+        const value = await options.connections.startOAuth(body.connectorId, body.redirectUri, requestOAuthCallback(req))
         json(res, 200, { ok: true, value })
         return
       }

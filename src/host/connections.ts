@@ -712,13 +712,25 @@ export class ConnectionService {
     return this.catalog().find(item => item.id === connectorId)
   }
 
-  async startOAuth(connectorId: string, redirectUri: string): Promise<{ authorizeUrl: string; flowId: string; opened: boolean }> {
+  async startOAuth(connectorId: string, redirectUri: string, fallbackRedirectUri?: string): Promise<{ authorizeUrl: string; flowId: string; opened: boolean }> {
     const card = this.catalog().find(item => item.id === connectorId)
     if (card === undefined || !card.published || card.auth.type !== 'oauth2') {
       throw new ConnectError('not_found', '连接器不存在或未发布')
     }
 
-    const redirect = parseRedirectUri(redirectUri)
+    let redirect: string
+    let usedFallback = false
+    try {
+      redirect = parseRedirectUri(redirectUri)
+    } catch (error) {
+      if (fallbackRedirectUri === undefined) throw error
+      usedFallback = true
+      redirect = parseRedirectUri(fallbackRedirectUri)
+      console.warn('[dsh-connectors] OAuth callback from client is invalid; using host callback', {
+        received: redirectUri,
+        used: redirect,
+      })
+    }
     const table = await this.table()
     const previous = table.get(connectorId)
     if (previous === undefined) {
@@ -731,6 +743,13 @@ export class ConnectionService {
         : new ConnectError('invalid_connector', '连接记录缺少服务地址')
     }
     const auth = card.auth
+    if (usedFallback && auth.registration === 'user') {
+      const parsed = new URL(redirect)
+      if (parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]') {
+        parsed.hostname = 'localhost'
+        redirect = parsed.toString()
+      }
+    }
     let metadata: OAuthMetadata
     if (auth.endpoints !== undefined) {
       metadata = {
