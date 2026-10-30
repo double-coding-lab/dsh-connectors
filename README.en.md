@@ -2,16 +2,16 @@
   <img src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/hero-en.svg" width="100%" alt="dsh-connectors: an MCP and CLI connector panel for DeepSeek Harness">
 </p>
 
-<p align="center">
+<div align="center" class="text-center">
   <a href="./README.md">简体中文</a> · <strong>English</strong>
-</p>
+</div>
 
-<p align="center">
+<div align="center" class="text-center">
   <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm 0.1.0" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/npm.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub: double-coding-lab/dsh-connectors" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/github.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors/blob/main/LICENSE"><img alt="MIT" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/mit.svg"></a>
   <img alt="DSH 0.2.x" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/dsh.svg">
-</p>
+</div>
 
 dsh-connectors is the **Connectors** panel for DeepSeek Harness. It includes 27 MCP connectors and 6 CLI connectors (DingTalk, Feishu, Tencent Meeting, WeCom, Hugging Face, Agent Mail). OAuth runs in your browser, credentials stay on your machine, and connected tools show up in your conversations.
 

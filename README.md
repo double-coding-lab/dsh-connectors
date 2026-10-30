@@ -2,16 +2,16 @@
   <img src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/hero.svg" width="100%" alt="dsh-connectors：DeepSeek Harness 的 MCP 与 CLI 连接器面板">
 </p>
 
-<p align="center">
+<div align="center" class="text-center">
   <strong>简体中文</strong> · <a href="./README.en.md">English</a>
-</p>
+</div>
 
-<p align="center">
+<div align="center" class="text-center">
   <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm 0.1.0" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/npm.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub: double-coding-lab/dsh-connectors" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/github.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors/blob/main/LICENSE"><img alt="MIT" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/mit.svg"></a>
   <img alt="DSH 0.2.x" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/dsh.svg">
-</p>
+</div>
 
 dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP 连接器和 6 个 CLI 连接器（钉钉、飞书、腾讯会议、企业微信、Hugging Face、Agent Mail）。OAuth 在浏览器里完成，凭据只保存在本机；连上后就能在对话里调用这些工具。
 
