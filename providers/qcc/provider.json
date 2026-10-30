@@ -13,7 +13,11 @@
     "统计这家公司名下的专利和商标",
     "查一下这个项目的中标记录和招标方"
   ],
-  "tags": ["企业查询", "风险", "知识产权"],
+  "tags": [
+    "企业查询",
+    "风险",
+    "知识产权"
+  ],
   "order": 84,
   "server": {
     "serverName": "qcc",
@@ -24,27 +28,73 @@
     "noun": "数据域",
     "hint": "每个数据域是独立的 MCP 服务，切换后会断开当前连接并需要重新连接。",
     "presets": [
-      { "label": "工商信息", "url": "https://agent.qcc.com/mcp/company/stream" },
-      { "label": "风险信息", "url": "https://agent.qcc.com/mcp/risk/stream" },
-      { "label": "知识产权", "url": "https://agent.qcc.com/mcp/ipr/stream" },
-      { "label": "经营信息", "url": "https://agent.qcc.com/mcp/operation/stream" },
-      { "label": "历史信息", "url": "https://agent.qcc.com/mcp/history/stream" },
-      { "label": "人员信息", "url": "https://agent.qcc.com/mcp/executive/stream" },
-      { "label": "法规检索", "url": "https://agent.qcc.com/mcp/regulation/stream" },
-      { "label": "裁判文书", "url": "https://agent.qcc.com/mcp/case/stream" },
-      { "label": "招投标", "url": "https://agent.qcc.com/mcp/tender/stream" },
-      { "label": "文档解析", "url": "https://agent.qcc.com/mcp/document/stream" }
+      {
+        "label": "工商信息",
+        "url": "https://agent.qcc.com/mcp/company/stream"
+      },
+      {
+        "label": "风险信息",
+        "url": "https://agent.qcc.com/mcp/risk/stream"
+      },
+      {
+        "label": "知识产权",
+        "url": "https://agent.qcc.com/mcp/ipr/stream"
+      },
+      {
+        "label": "经营信息",
+        "url": "https://agent.qcc.com/mcp/operation/stream"
+      },
+      {
+        "label": "历史信息",
+        "url": "https://agent.qcc.com/mcp/history/stream"
+      },
+      {
+        "label": "人员信息",
+        "url": "https://agent.qcc.com/mcp/executive/stream"
+      },
+      {
+        "label": "法规检索",
+        "url": "https://agent.qcc.com/mcp/regulation/stream"
+      },
+      {
+        "label": "裁判文书",
+        "url": "https://agent.qcc.com/mcp/case/stream"
+      },
+      {
+        "label": "招投标",
+        "url": "https://agent.qcc.com/mcp/tender/stream"
+      },
+      {
+        "label": "文档解析",
+        "url": "https://agent.qcc.com/mcp/document/stream"
+      }
     ]
   },
   "auth": {
     "type": "oauth2",
     "flow": "pkce",
     "registration": "dcr",
-    "scopes": ["mcp:tools"],
+    "scopes": [
+      "mcp:tools"
+    ],
     "help": {
       "url": "https://agent.qcc.com/guide",
       "label": "查看企查查 MCP 接入说明",
       "hint": "授权后在浏览器登录企查查账号即可；调用按账号积分计费，需先在平台充值。"
+    }
+  },
+  "translations": {
+    "en": {
+      "summary": "Look up company registration, risk, IP, and bidding data.",
+      "description": "Official QCC agent data platform MCP: connect business registration, risk, IP, operations, history, people, regulations, court documents, bidding, and document parsing by data domain. Connect one domain at a time and switch when needed.",
+      "examples": [
+        "Look up the registration and shareholders of Example Technology Ltd.",
+        "What litigation risk and enforcement records does this company have?",
+        "Count the patents and trademarks under this company",
+        "Check the winning bid records and buyer for this project"
+      ],
+      "name": "QCC",
+      "vendor": "QCC"
     }
   }
 }

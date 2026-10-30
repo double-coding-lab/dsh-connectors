@@ -48,5 +48,17 @@
       "label": "查看 Supabase MCP 说明",
       "hint": "授权后按你在 Supabase 里的组织与项目权限调用；令牌只保存在本机。"
     }
+  },
+  "translations": {
+    "en": {
+      "summary": "Query Supabase databases, Edge Functions, and project configuration.",
+      "description": "Official Supabase MCP service for SQL queries, table schemas, Edge Functions, and project management. Paste a Supabase PAT during installation; the token stays on this machine.",
+      "examples": [
+        "List my Supabase projects with their regions",
+        "Inspect the users table and the latest 20 rows in my-project",
+        "Show recent Edge Function logs for my-project",
+        "Create a new database table in my-project"
+      ]
+    }
   }
 }

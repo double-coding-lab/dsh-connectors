@@ -13,7 +13,11 @@
     "查某个地址的经纬度",
     "查明天的天气"
   ],
-  "tags": ["地图", "路线", "天气"],
+  "tags": [
+    "地图",
+    "路线",
+    "天气"
+  ],
   "order": 69,
   "instance": {
     "label": "高德 MCP 地址",
@@ -30,5 +34,19 @@
   },
   "auth": {
     "type": "none"
+  },
+  "translations": {
+    "en": {
+      "summary": "Look up places, routes, and weather. Include an Amap key in the URL.",
+      "description": "Official Amap MCP service. Enter the full URL with your Amap key in the query string; the key stays on this machine.",
+      "examples": [
+        "Driving route from Beijing South Station to Capital Airport",
+        "Find highly rated coffee shops nearby",
+        "Get the latitude and longitude of an address",
+        "Check tomorrow's weather"
+      ],
+      "name": "Amap",
+      "vendor": "Amap"
+    }
   }
 }

@@ -13,7 +13,11 @@
     "把这份 Markdown 导入腾讯文档，生成可协作的在线文档",
     "把会议纪要整理成一页智能画布，包含时间线和待办"
   ],
-  "tags": ["文档", "在线表格", "智能画布"],
+  "tags": [
+    "文档",
+    "在线表格",
+    "智能画布"
+  ],
   "order": 91,
   "server": {
     "serverName": "tencent-docs",
@@ -24,11 +28,28 @@
     "type": "oauth2",
     "flow": "pkce",
     "registration": "dcr",
-    "scopes": ["docs:read", "docs:write"],
+    "scopes": [
+      "docs:read",
+      "docs:write"
+    ],
     "help": {
       "url": "https://docs.qq.com/open/document/mcp/",
       "label": "查看腾讯文档 MCP 说明",
       "hint": "授权后在浏览器登录腾讯文档即可；调用按账号的每日额度计，令牌只保存在本机。"
+    }
+  },
+  "translations": {
+    "en": {
+      "summary": "Read and write Tencent Docs, online sheets, and smart canvases.",
+      "description": "Official Tencent Docs MCP service: search and create documents, read and write body content, import and export, and generate smart canvases from Markdown.",
+      "examples": [
+        "Create a Q3 project weekly report in Tencent Docs and expand my outline into full text",
+        "Find recently updated requirement docs in my space and list titles and update times",
+        "Import this Markdown as a collaborative Tencent Doc",
+        "Turn the meeting notes into a one-page smart canvas with a timeline and action items"
+      ],
+      "name": "Tencent Docs",
+      "vendor": "Tencent"
     }
   }
 }

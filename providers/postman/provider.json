@@ -13,7 +13,11 @@
     "把当前 API 定义整理成集合",
     "查环境变量的配置"
   ],
-  "tags": ["API", "集合", "接口调试"],
+  "tags": [
+    "API",
+    "集合",
+    "接口调试"
+  ],
   "order": 71,
   "server": {
     "serverName": "postman",
@@ -25,5 +29,17 @@
     "flow": "pkce",
     "registration": "dcr",
     "clientName": "DSH 连接器"
+  },
+  "translations": {
+    "en": {
+      "summary": "Query Postman workspaces, collections, environments, and APIs.",
+      "description": "Official Postman MCP service for workspaces, collections, environment variables, and API definitions, useful for API debugging and documentation.",
+      "examples": [
+        "List my Postman workspaces",
+        "Show the requests in a collection",
+        "Turn the current API definition into a collection",
+        "Check environment variable configuration"
+      ]
+    }
   }
 }

@@ -37,5 +37,17 @@
       "label": "查看 Linear MCP 说明",
       "hint": "在浏览器里登录 Linear 完成授权；令牌只保存在本机。"
     }
+  },
+  "translations": {
+    "en": {
+      "summary": "Search and update Linear issues, projects, and comments.",
+      "description": "Official Linear MCP service with issue, project, cycle, and comment tools. Paste a Linear API key during installation; the token stays on this machine.",
+      "examples": [
+        "List my recent Linear issues, sorted by priority",
+        "Create a bug issue in the ENG team with reproduction steps",
+        "Show progress and blockers in the current ENG cycle",
+        "Comment on issue ENG-123 with the fix status"
+      ]
+    }
   }
 }

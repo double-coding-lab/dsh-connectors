@@ -34,5 +34,17 @@
       "label": "查看 PostHog MCP 说明",
       "hint": "PostHog 的自助注册客户端不接受指定 scope，授权时由服务端决定；令牌只保存在本机。"
     }
+  },
+  "translations": {
+    "en": {
+      "summary": "Query PostHog product analytics, events, and experiments.",
+      "description": "Official PostHog MCP service for events, trends, funnels, experiments, and user behavior.",
+      "examples": [
+        "Show page views over the last 7 days",
+        "List features with the most active users",
+        "Check the conversion results of an experiment",
+        "Summarize recent high-frequency error events"
+      ]
+    }
   }
 }

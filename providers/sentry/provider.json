@@ -13,7 +13,11 @@
     "定位一个错误的堆栈和影响范围",
     "总结一个项目的发布健康度"
   ],
-  "tags": ["错误监控", "Issue", "可观测性"],
+  "tags": [
+    "错误监控",
+    "Issue",
+    "可观测性"
+  ],
   "order": 80,
   "server": {
     "serverName": "sentry",
@@ -24,7 +28,25 @@
     "type": "oauth2",
     "flow": "pkce",
     "registration": "dcr",
-    "scopes": ["org:read", "project:write", "team:write", "event:write", "alerts:write"],
+    "scopes": [
+      "org:read",
+      "project:write",
+      "team:write",
+      "event:write",
+      "alerts:write"
+    ],
     "clientName": "DSH 连接器"
+  },
+  "translations": {
+    "en": {
+      "summary": "Query Sentry projects, issues, events, and error trends.",
+      "description": "Official Sentry MCP service for projects, issues, error events, and trends. OAuth requests the scopes the service supports.",
+      "examples": [
+        "Show the error trend over the last 24 hours",
+        "List unresolved issues",
+        "Locate the stack and impact of an error",
+        "Summarize the release health of a project"
+      ]
+    }
   }
 }

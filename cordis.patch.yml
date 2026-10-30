@@ -3,6 +3,6 @@
 #   dsh plugin --profile web add link:<path-to-this-package>
 - insert:
     - id: dsh-connectors
-      name: dsh-connectors
+      name: "@double-coding/dsh-connectors"
       config:
         showSidebarEntry: true

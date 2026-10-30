@@ -13,7 +13,11 @@
     "汇总某个新闻事件的来源",
     "对比两个产品的官方介绍"
   ],
-  "tags": ["联网搜索", "网页", "资讯"],
+  "tags": [
+    "联网搜索",
+    "网页",
+    "资讯"
+  ],
   "order": 68,
   "server": {
     "serverName": "tencent-yuanbao-search",
@@ -27,6 +31,20 @@
       "url": "https://cloud.tencent.com/developer/mcp/server/11764",
       "label": "查看腾讯云 MCP 说明",
       "hint": "在腾讯云 MCP 广场对应服务中获取 API Key；令牌只保存在本机。"
+    }
+  },
+  "translations": {
+    "en": {
+      "summary": "Web search that returns pages related to a query.",
+      "description": "Tencent Cloud web search MCP service for recent news, technical material, and page sources.",
+      "examples": [
+        "Search the web for recent pages about a topic",
+        "Find the latest material on a technical question",
+        "Collect sources for a news event",
+        "Compare the official introductions of two products"
+      ],
+      "name": "Tencent Yuanbao Search",
+      "vendor": "Tencent Cloud"
     }
   }
 }

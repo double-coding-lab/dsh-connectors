@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -8,7 +8,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outfile = resolve(root, 'dist', 'client.js')
 mkdirSync(dirname(outfile), { recursive: true })
 
-const pluginId = 'dsh-connectors'
+const pluginId = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).name
 
 await esbuild.build({
   absWorkingDir: root,

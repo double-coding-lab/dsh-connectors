@@ -3,6 +3,10 @@ import type * as MonacoApi from 'monaco-editor'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 
+import { CLI_EN, CLI_ITEM_EN } from './cli-en.js'
+import type { LocaleFace } from './i18n.js'
+import { bindLocale, currentLocale, progressText, tr, useLocaleRevision } from './i18n.js'
+
 import type { CatalogPayload, CliConnectorPayload, CliConnectorView, CliListPayload, CliLogPayload, ConnectionView, ConnectorCard, ConnectionsPayload, CustomConfigPayload, CustomConfigView, CustomConnectorsPayload, CustomUpdatePayload, OAuthStartPayload, OAuthStatusPayload, ToolInfo } from '../shared/types.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
 import { CLI_ICONS } from './cli-icons.generated.js'
@@ -11,12 +15,49 @@ import { PROVIDER_ICONS } from './provider-icons.generated.js'
 import { BUILTIN_CATEGORIES, canonicalizeCardCategories, parseExampleLines } from '../shared/categories.js'
 import { CUSTOM_SECRET_PLACEHOLDER } from '../shared/customConfig.js'
 
-export const inject: string[] = []
+export const inject: string[] = ['locale']
 
 const PANEL_ID = 'dsh-connectors'
 const STYLE_ID = 'dsh-connectors-style'
 const PROBE_ROUNDS = 6
 const PROBE_INTERVAL_MS = 350
+
+function localizedCard(card: ConnectorCard): ConnectorCard {
+  if (currentLocale().toLowerCase().startsWith('zh')) return card
+  const copy = card.translations?.en
+  if (copy === undefined) return card
+  return {
+    ...card,
+    name: copy.name ?? card.name,
+    vendor: copy.vendor ?? card.vendor,
+    summary: copy.summary ?? card.summary,
+    description: copy.description ?? card.description,
+    examples: copy.examples ?? card.examples,
+  }
+}
+
+function localizedCli(connector: CliConnectorView): CliConnectorView {
+  if (currentLocale().toLowerCase().startsWith('zh')) return connector
+  const copy = CLI_EN[connector.id]
+  const capabilities = connector.capabilities === undefined
+    ? undefined
+    : {
+        ...connector.capabilities,
+        items: connector.capabilities.items.map(item => {
+          const translated = CLI_ITEM_EN[`${connector.id}:${item.id}`]
+          return translated === undefined ? item : { ...item, ...translated }
+        }),
+      }
+  return {
+    ...connector,
+    name: copy?.name ?? connector.name,
+    vendor: copy?.vendor ?? connector.vendor,
+    description: copy?.description ?? connector.description,
+    examples: copy?.examples ?? connector.examples,
+    installHint: copy?.installLabels ?? connector.installHint,
+    ...(capabilities === undefined ? {} : { capabilities }),
+  }
+}
 const MCP_SERVERS_PLACEHOLDER = `{
   "mcpServers": {
     "my-server": {
@@ -30,6 +71,24 @@ const MCP_SERVERS_PLACEHOLDER = `{
     }
   }
 }`
+const MCP_SERVERS_PLACEHOLDER_EN = `{
+  "mcpServers": {
+    "my-server": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer ..." },
+      "x-dsh": {
+        "description": "Inspect repository structure and docs",
+        "category": "Search & knowledge",
+        "examples": ["Use my-server to look up the latest docs"]
+      }
+    }
+  }
+}`
+const X_DSH_SAMPLE_EN = `"x-dsh": {
+  "description": "Inspect repository structure and docs",
+  "category": "Search & knowledge",
+  "examples": ["Use DeepWiki to inspect the facebook/react repository structure"]
+}`
 interface SlotsFace {
   inject: (name: string, callback: () => unknown) => unknown
   register: (spec: Record<string, unknown>, component: unknown) => () => void
@@ -40,15 +99,25 @@ interface WorkspaceFace {
 }
 
 export function apply(ctx: Context): () => void {
+  try {
+    return applyInner(ctx)
+  } catch (error) {
+    console.error('[dsh-connectors] apply failed', error)
+    throw error
+  }
+}
+
+function applyInner(ctx: Context): () => void {
   installStyles()
   const get = (ctx as Context & { get?: (name: string) => unknown }).get?.bind(ctx)
+  bindLocale((ctx as Context & { locale?: LocaleFace }).locale)
   let disposed = false
   let timer: ReturnType<typeof setTimeout> | undefined
 
   const startTrial = (prompt: string): void => {
     const workspace = get?.('uiWorkspace') as WorkspaceFace | undefined
     if (workspace === undefined || typeof workspace.startSession !== 'function') {
-      throw new Error('当前 DSH 版本不支持从连接器打开会话')
+      throw new Error(tr('当前 DSH 版本不支持从连接器打开会话'))
     }
     workspace.startSession(undefined, { prompt, clearPreviousDraft: true })
   }
@@ -67,7 +136,7 @@ export function apply(ctx: Context): () => void {
     try {
       slots.inject('main', () => slots.register({ name: 'main', key: PANEL_ID }, () => <Panel startTrial={startTrial} />))
       slots.inject('sidebar.panellist', () =>
-        slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 20, label: () => '连接器' }, PanelIcon))
+        slots.register({ name: 'sidebar.panellist', id: PANEL_ID, order: 20, label: () => tr('连接器') }, PanelIcon))
       console.info('[dsh-connectors] panel registered')
     } catch (error) {
       console.error('[dsh-connectors] panel registration failed', error)
@@ -75,21 +144,21 @@ export function apply(ctx: Context): () => void {
 
     try {
       slots.inject('conversation.input.left', () =>
-        slots.register({ name: 'conversation.input.left', id: `${PANEL_ID}-dock`, order: 20, label: '连接器' }, ConnectorDock))
+        slots.register({ name: 'conversation.input.left', id: `${PANEL_ID}-dock`, order: 20, label: () => tr('连接器') }, ConnectorDock))
     } catch (error) {
       console.warn('[dsh-connectors] composer dock slot unavailable', error)
     }
 
     try {
       slots.inject('conversation.input.overlay', () =>
-        slots.register({ name: 'conversation.input.overlay', id: `${PANEL_ID}-popover`, order: 20, label: '连接器' }, ConnectorPopover))
+        slots.register({ name: 'conversation.input.overlay', id: `${PANEL_ID}-popover`, order: 20, label: () => tr('连接器') }, ConnectorPopover))
     } catch (error) {
       console.warn('[dsh-connectors] composer overlay slot unavailable', error)
     }
 
     try {
       slots.inject('shell.overlay', () =>
-        slots.register({ name: 'shell.overlay', id: `${PANEL_ID}-flow`, order: 20, label: '连接器弹窗' }, () => <Panel startTrial={startTrial} variant="overlay" />))
+        slots.register({ name: 'shell.overlay', id: `${PANEL_ID}-flow`, order: 20, label: () => tr('连接器弹窗') }, () => <Panel startTrial={startTrial} variant="overlay" />))
     } catch (error) {
       console.warn('[dsh-connectors] shell overlay slot unavailable', error)
     }
@@ -172,12 +241,12 @@ interface PanelProps {
 }
 
 function promptForExample(card: ConnectorCard, example: string): string {
-  return example.toLowerCase().includes(card.name.toLowerCase()) ? example : `使用 ${card.name}：${example}`
+  return example.toLowerCase().includes(card.name.toLowerCase()) ? example : tr("使用 {v0}：{v1}", { v0: card.name, v1: example })
 }
 
 function promptForNextExample(card: ConnectorCard): string {
   const examples = card.examples ?? []
-  if (examples.length === 0) return `使用 ${card.name} 的工具完成一个简单任务，先列出可用工具。`
+  if (examples.length === 0) return tr("使用 {v0} 的工具完成一个简单任务，先列出可用工具。", { v0: card.name })
   const key = `dsh-connectors:trial-index:${card.id}`
   let index = 0
   try {
@@ -214,11 +283,11 @@ function isTokenCard(card: ConnectorCard): boolean {
 
 function tokenLabel(card: ConnectorCard): string {
   const auth = card.auth
-  return auth.type === 'bearer' || auth.type === 'header' ? auth.label : '访问令牌'
+  return auth.type === 'bearer' || auth.type === 'header' ? auth.label : tr('访问令牌')
 }
 
 function instanceNoun(card: ConnectorCard): string {
-  return card.instance?.noun ?? '地址'
+  return card.instance?.noun ?? tr('地址')
 }
 
 function tokenHelp(card: ConnectorCard): { url: string; label: string; hint?: string } | undefined {
@@ -267,9 +336,9 @@ function ToolRow({ name, description }: { name: string; description?: string }):
           <button
             type="button"
             className="dshc-tool-expand"
-            aria-label={expanded ? '收起描述' : '展开描述'}
+            aria-label={expanded ? tr('收起描述') : tr('展开描述')}
             aria-expanded={expanded}
-            title={expanded ? '收起描述' : '展开描述'}
+            title={expanded ? tr('收起描述') : tr('展开描述')}
             onClick={() => setExpanded(current => !current)}
           >
             <IconChevronDown
@@ -438,7 +507,8 @@ function JsonEditor({ value, onChange }: { value: string; onChange: (value: stri
       {!ready && !failed && (
         <div className="dshc-json-editor-loading">
           <Spinner inline />
-          正在加载编辑器…
+          
+          {tr("正在加载编辑器…")}
         </div>
       )}
     </div>
@@ -448,12 +518,12 @@ function JsonEditor({ value, onChange }: { value: string; onChange: (value: stri
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(new ApiError('oauth_cancelled', '已取消授权'))
+      reject(new ApiError('oauth_cancelled', tr('已取消授权')))
       return
     }
     const onAbort = (): void => {
       clearTimeout(timer)
-      reject(new ApiError('oauth_cancelled', '已取消授权'))
+      reject(new ApiError('oauth_cancelled', tr('已取消授权')))
     }
     const timer = setTimeout(() => {
       signal?.removeEventListener('abort', onAbort)
@@ -492,12 +562,12 @@ async function authorizeConnector(
       signal: options.signal,
     })
   } catch (cause) {
-    if (options.signal?.aborted) throw new ApiError('oauth_cancelled', '已取消授权')
+    if (options.signal?.aborted) throw new ApiError('oauth_cancelled', tr('已取消授权'))
     throw cause
   }
   const { flowId, authorizeUrl, opened } = response.value
   options.onFlow?.({ flowId, authorizeUrl, opened })
-  if (options.signal?.aborted) throw new ApiError('oauth_cancelled', '已取消授权')
+  if (options.signal?.aborted) throw new ApiError('oauth_cancelled', tr('已取消授权'))
 
   const deadline = Date.now() + OAUTH_TIMEOUT_MS
   for (;;) {
@@ -510,7 +580,7 @@ async function authorizeConnector(
       )
       status = payload.value
     } catch {
-      if (options.signal?.aborted) throw new ApiError('oauth_cancelled', '已取消授权')
+      if (options.signal?.aborted) throw new ApiError('oauth_cancelled', tr('已取消授权'))
     }
     if (status?.status === 'done') {
       let connection: ConnectionView | undefined
@@ -522,27 +592,27 @@ async function authorizeConnector(
         connection = list.value.connections.find(item => item.connectorId === card.id)
         fetched = true
       } catch {
-        if (options.signal?.aborted) throw new ApiError('oauth_cancelled', '已取消授权')
+        if (options.signal?.aborted) throw new ApiError('oauth_cancelled', tr('已取消授权'))
       }
       if (fetched) {
         if (connection === undefined) {
-          throw new ApiError('oauth_failed', '授权完成，但没有找到连接记录，请刷新面板重试')
+          throw new ApiError('oauth_failed', tr('授权完成，但没有找到连接记录，请刷新面板重试'))
         }
         return connection
       }
     }
     if (status?.status === 'error') {
-      throw new ApiError('oauth_failed', status.message ?? '授权失败，请重试')
+      throw new ApiError('oauth_failed', status.message ?? tr('授权失败，请重试'))
     }
     if (status?.status === 'expired') {
-      throw new ApiError('oauth_expired', '授权已过期，请重试')
+      throw new ApiError('oauth_expired', tr('授权已过期，请重试'))
     }
     if (Date.now() >= deadline) {
       await request(`${ROUTE_PREFIX}/api/oauth/cancel`, {
         method: 'POST',
         body: JSON.stringify({ flowId }),
       }).catch(() => undefined)
-      throw new ApiError('oauth_timeout', '授权超时，请重试')
+      throw new ApiError('oauth_timeout', tr('授权超时，请重试'))
     }
   }
 }
@@ -553,7 +623,7 @@ async function saveOAuthClient(card: ConnectorCard, clientId: string, clientSecr
     body: JSON.stringify({ clientId, clientSecret }),
   })
   const connection = response.value?.connection
-  if (connection === undefined) throw new ApiError('invalid_response', '保存应用凭据失败：宿主没有返回连接')
+  if (connection === undefined) throw new ApiError('invalid_response', tr('保存应用凭据失败：宿主没有返回连接'))
   return connection
 }
 
@@ -729,15 +799,18 @@ function enabledDockCli(state: DockSnapshot): CliConnectorView[] {
 }
 
 function dockActionLabel(card: ConnectorCard, connection?: ConnectionView): string {
-  if (connection === undefined) return '安装'
-  if (card.instance !== undefined && connection.instanceReady !== true) return '配置'
-  return '授权'
+  if (connection === undefined) return tr('安装')
+  if (card.instance !== undefined && connection.instanceReady !== true) return tr('配置')
+  return tr('授权')
 }
 
 function openConnectorPanel(): void {
   closeDock()
   if (document.querySelector('.dshc-root:not(.dshc-flow-root)') !== null) return
-  const button = Array.from(document.querySelectorAll('button')).find(item => item.getAttribute('aria-label') === '连接器')
+  const button = Array.from(document.querySelectorAll('button')).find(item => {
+    const label = item.getAttribute('aria-label')
+    return label === '连接器' || label === tr('连接器')
+  })
   if (button === undefined) return
   const rect = button.getBoundingClientRect()
   const options: MouseEventInit = {
@@ -796,6 +869,7 @@ async function cancelDockCli(connector: CliConnectorView): Promise<void> {
 }
 
 function ConnectorDock(): JSX.Element | null {
+  useLocaleRevision()
   const state = useDock()
 
   useEffect(() => {
@@ -821,7 +895,7 @@ function ConnectorDock(): JSX.Element | null {
   const shown = entries.slice(0, 3)
   const extra = entries.length - shown.length
   const label = entries
-    .map(entry => `${entry.name}${entry.failed ? '（连接失败）' : ''}`)
+    .map(entry => `${entry.name}${entry.failed ? tr('（连接失败）') : ''}`)
     .join('、')
   const single = entries.length === 1
 
@@ -831,7 +905,7 @@ function ConnectorDock(): JSX.Element | null {
       className={single ? 'dshc-dock dshc-dock-single' : 'dshc-dock'}
       data-dshc-dock="true"
       title={label}
-      aria-label={`已启用 ${entries.length} 个连接器`}
+      aria-label={tr("已启用 {v0} 个连接器", { v0: entries.length })}
       onClick={toggleDock}
     >
       {shown.map((entry, index) => (
@@ -848,6 +922,7 @@ function ConnectorDock(): JSX.Element | null {
 }
 
 function ConnectorPopover(): JSX.Element | null {
+  useLocaleRevision()
   const state = useDock()
   const [tip, setTip] = useState<{ text: string; left: number; top: number; width: number } | null>(null)
   const [pendingLabel, setPendingLabel] = useState<string | null>(null)
@@ -1029,13 +1104,13 @@ function ConnectorPopover(): JSX.Element | null {
           <span className="dshc-dock-row-main">
             <span className="dshc-dock-row-name">{card.name}</span>
             {connection?.error !== undefined && (
-              <span className="dshc-dock-row-error" title={connection.error}>连接失败</span>
+              <span className="dshc-dock-row-error" title={connection.error}>{tr("连接失败")}</span>
             )}
           </span>
           {connection !== undefined && connection.authorized
             ? (
                 pending
-                  ? <span className="dshc-dock-toggle" role="status" aria-label="处理中">
+                  ? <span className="dshc-dock-toggle" role="status" aria-label={tr("处理中")}>
                       <Spinner inline />
                     </span>
                   : <button
@@ -1043,16 +1118,16 @@ function ConnectorPopover(): JSX.Element | null {
                       role="switch"
                       className="dshc-switch"
                       aria-checked={connection.enabled}
-                      aria-label={connection.enabled ? `停用 ${card.name}` : `启用 ${card.name}`}
-                      title={connection.enabled ? '停用' : '启用'}
+                      aria-label={connection.enabled ? tr("停用 {v0}", { v0: card.name }) : tr("启用 {v0}", { v0: card.name })}
+                      title={connection.enabled ? tr('停用') : tr('启用')}
                       onClick={() => { void toggleDockConnection(card, !connection.enabled) }}
                     />
               )
             : (
                 pending
-                  ? <span className="dshc-dock-pending" role="status" aria-label={`${pendingLabelText}中`}>
+                  ? <span className="dshc-dock-pending" role="status" aria-label={progressText(pendingLabelText)}>
                       <Spinner inline />
-                      {pendingLabelText}中…
+                      {progressText(pendingLabelText)}
                       {canCancel && (
                         <button
                           type="button"
@@ -1062,7 +1137,8 @@ function ConnectorPopover(): JSX.Element | null {
                             requestConnectorFlowCancel(card.id)
                           }}
                         >
-                          取消
+                          
+                          {tr("取消")}
                         </button>
                       )}
                     </span>
@@ -1086,7 +1162,7 @@ function ConnectorPopover(): JSX.Element | null {
     const enabled = connector.enabled !== false
     const ready = connector.installed && connector.authenticated
     const action = connector.installed ? 'login' : 'install'
-    const actionLabel = connector.installed ? '登录' : '安装'
+    const actionLabel = connector.installed ? tr('登录') : tr('安装')
     const pendingLabel = connector.stage ?? actionLabel
     return (
       <div className="dshc-dock-item" key={`cli:${connector.id}`}>
@@ -1099,14 +1175,14 @@ function ConnectorPopover(): JSX.Element | null {
           <span className="dshc-dock-row-main">
             <span className="dshc-dock-row-name">{connector.name}</span>
             {connector.phase === 'error' && connector.lastError !== undefined && (
-              <span className="dshc-dock-row-error" title={connector.lastError}>处理失败</span>
+              <span className="dshc-dock-row-error" title={connector.lastError}>{tr("处理失败")}</span>
             )}
           </span>
           <span className="dshc-dock-row-hint">CLI</span>
           {ready && !busy
             ? (
                 pending
-                  ? <span className="dshc-dock-toggle" role="status" aria-label="处理中">
+                  ? <span className="dshc-dock-toggle" role="status" aria-label={tr("处理中")}>
                       <Spinner inline />
                     </span>
                   : <button
@@ -1114,16 +1190,16 @@ function ConnectorPopover(): JSX.Element | null {
                       role="switch"
                       className="dshc-switch"
                       aria-checked={enabled}
-                      aria-label={enabled ? `停用 ${connector.name}` : `启用 ${connector.name}`}
-                      title={enabled ? '停用' : '启用'}
+                      aria-label={enabled ? tr("停用 {v0}", { v0: connector.name }) : tr("启用 {v0}", { v0: connector.name })}
+                      title={enabled ? tr('停用') : tr('启用')}
                       onClick={() => { void toggleDockCli(connector, !enabled) }}
                     />
               )
             : (
                 pending
-                  ? <span className="dshc-dock-pending" role="status" aria-label={`${pendingLabel}中`}>
+                  ? <span className="dshc-dock-pending" role="status" aria-label={progressText(pendingLabel)}>
                       <Spinner inline />
-                      {pendingLabel}中…
+                      {progressText(pendingLabel)}
                       <button
                         type="button"
                         className="dshc-dock-pending-cancel"
@@ -1132,7 +1208,8 @@ function ConnectorPopover(): JSX.Element | null {
                           void cancelDockCli(connector)
                         }}
                       >
-                        取消
+                        
+                        {tr("取消")}
                       </button>
                     </span>
                   : <button type="button" className="dshc-dock-connect" onClick={() => startCliFlow(connector, action)}>
@@ -1147,7 +1224,7 @@ function ConnectorPopover(): JSX.Element | null {
 
   return (
     <>
-      <div className="dshc-dock-popover" role="dialog" aria-label="连接器">
+      <div className="dshc-dock-popover" role="dialog" aria-label={tr("连接器")}>
       <label className="dshc-dock-search">
         <IconSearch size={13} />
         <input
@@ -1157,16 +1234,16 @@ function ConnectorPopover(): JSX.Element | null {
           data-lpignore="true"
           data-1p-ignore="true"
           data-bwignore="true"
-          placeholder="搜索连接器"
+          placeholder={tr('搜索连接器')}
           value={state.query}
           onChange={event => updateDock({ query: event.target.value })}
         />
       </label>
       <div className="dshc-dock-list" onScroll={() => setTip(null)}>
         {!state.loaded
-          ? <div className="dshc-dock-empty">{state.loading ? '正在加载连接器…' : '没有可用的连接器'}</div>
+          ? <div className="dshc-dock-empty">{state.loading ? tr('正在加载连接器…') : tr('没有可用的连接器')}</div>
           : rows.length === 0
-            ? <div className="dshc-dock-empty">没有匹配的连接器</div>
+            ? <div className="dshc-dock-empty">{tr('没有匹配的连接器')}</div>
             : rows.map(entry => entry.kind === 'mcp'
               ? renderMcpRow(entry.card)
               : renderCliRow(entry.connector))}
@@ -1174,7 +1251,8 @@ function ConnectorPopover(): JSX.Element | null {
       {state.error !== null && <div className="dshc-dock-error">{state.error}</div>}
       <button type="button" className="dshc-dock-manage" onClick={openConnectorPanel}>
         <IconLink size={13} />
-        管理连接器
+        
+        {tr("管理连接器")}
       </button>
       </div>
       {tip !== null && createPortal(
@@ -1188,6 +1266,7 @@ function ConnectorPopover(): JSX.Element | null {
 }
 
 function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
+  const localeRevision = useLocaleRevision()
   const [cards, setCards] = useState<ConnectorCard[]>([])
   const [connections, setConnections] = useState<Record<string, ConnectionView>>({})
   const [error, setError] = useState<string | null>(null)
@@ -1309,6 +1388,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
   useEffect(loadCli, [])
 
   const cliActive = cliConnectors.some(connector => connector.phase !== 'idle' && connector.phase !== 'error')
+  const localizedCliConnectors = useMemo(() => cliConnectors.map(localizedCli), [cliConnectors, localeRevision])
   const cliWasActiveRef = useRef(false)
   useEffect(() => {
     if (cliActive) {
@@ -1346,7 +1426,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
 
   useEffect(() => {
     if (variant !== 'overlay' || cliFlow === null) return
-    const connector = cliConnectors.find(item => item.id === cliFlow.id)
+    const connector = localizedCliConnectors.find(item => item.id === cliFlow.id)
     if (connector === undefined) return
     const request = cliFlow
     setCliFlow(null)
@@ -1357,7 +1437,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
       setCliLoginId(connector.id)
     }
     announceCliFlowOpened(connector.id)
-  }, [variant, cliFlow, cliConnectors])
+  }, [variant, cliFlow, localizedCliConnectors])
 
   const applyCli = (connector: CliConnectorView): void => {
     setCliConnectors(previous => {
@@ -1416,10 +1496,10 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
 
   const trialCli = (connector: CliConnectorView, example?: string): void => {
     const prompt = example !== undefined
-      ? `使用${connector.name} CLI：${example}`
+      ? tr("使用{v0} CLI：{v1}", { v0: connector.name, v1: example })
       : connector.examples[0] !== undefined
-        ? `使用${connector.name} CLI：${connector.examples[0]}`
-        : `使用 ${connector.name} CLI 完成一个简单任务，先说明可以做什么。`
+        ? tr("使用{v0} CLI：{v1}", { v0: connector.name, v1: connector.examples[0] })
+        : tr("使用 {v0} CLI 完成一个简单任务，先说明可以做什么。", { v0: connector.name })
     try {
       startTrial(prompt)
     } catch (cause) {
@@ -1497,7 +1577,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
 
   useEffect(() => {
     if (cliUninstallId === null) return
-    const connector = cliConnectors.find(item => item.id === cliUninstallId)
+    const connector = localizedCliConnectors.find(item => item.id === cliUninstallId)
     if (connector === undefined) return
     if (connector.phase === 'error' && connector.lastError !== undefined) {
       setCliUninstallError(connector.lastError)
@@ -1507,18 +1587,20 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
       setCliUninstallError(null)
       notifyConnectionsChanged()
     }
-  }, [cliConnectors, cliUninstallId])
+  }, [localizedCliConnectors, cliUninstallId])
 
-  const cliDetail = cliConnectors.find(connector => connector.id === cliDetailId) ?? null
-  const cliInstall = cliConnectors.find(connector => connector.id === cliInstallId) ?? null
-  const cliLogin = cliConnectors.find(connector => connector.id === cliLoginId) ?? null
-  const cliUninstall = cliConnectors.find(connector => connector.id === cliUninstallId) ?? null
-  const cliUpdate = cliConnectors.find(connector => connector.id === cliUpdateId) ?? null
-  const cliErrorConnector = cliConnectors.find(connector => connector.id === cliErrorId) ?? null
+  const cliDetail = localizedCliConnectors.find(connector => connector.id === cliDetailId) ?? null
+  const cliInstall = localizedCliConnectors.find(connector => connector.id === cliInstallId) ?? null
+  const cliLogin = localizedCliConnectors.find(connector => connector.id === cliLoginId) ?? null
+  const cliUninstall = localizedCliConnectors.find(connector => connector.id === cliUninstallId) ?? null
+  const cliUpdate = localizedCliConnectors.find(connector => connector.id === cliUpdateId) ?? null
+  const cliErrorConnector = localizedCliConnectors.find(connector => connector.id === cliErrorId) ?? null
+
+  const localizedCards = useMemo(() => cards.map(localizedCard), [cards, localeRevision])
 
   const categories = useMemo(() => {
     const present = new Set([
-      ...cards.map(card => card.category),
+      ...localizedCards.map(card => card.category),
       ...cliConnectors.map(connector => connector.category),
     ])
     const builtinSet = new Set<string>(BUILTIN_CATEGORIES)
@@ -1527,15 +1609,15 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
       .filter(category => !builtinSet.has(category))
       .sort((left, right) => left.localeCompare(right, 'zh-CN'))
     return ['全部', ...builtin, ...custom]
-  }, [cards, cliConnectors])
+  }, [localizedCards, cliConnectors])
 
   const categoryOptions = useMemo(() => {
     const builtinSet = new Set<string>(BUILTIN_CATEGORIES)
     const custom = [...new Set(
-      cards.map(card => card.category).filter(category => !builtinSet.has(category)),
+      localizedCards.map(card => card.category).filter(category => !builtinSet.has(category)),
     )].sort((left, right) => left.localeCompare(right, 'zh-CN'))
     return [...BUILTIN_CATEGORIES, ...custom]
-  }, [cards])
+  }, [localizedCards])
 
   useEffect(() => {
     if (!categories.includes(category)) setCategory('全部')
@@ -1543,21 +1625,21 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
 
   const visible = useMemo(() => {
     const keyword = query.trim().toLowerCase()
-    return cards.filter(card => {
+    return localizedCards.filter(card => {
       if (category !== '全部' && card.category !== category) return false
       if (keyword.length === 0) return true
       return `${card.name} ${card.vendor ?? ''} ${card.summary} ${(card.tags ?? []).join(' ')}`.toLowerCase().includes(keyword)
     })
-  }, [cards, category, query])
+  }, [localizedCards, category, query])
 
   const visibleCli = useMemo(() => {
     const keyword = query.trim().toLowerCase()
-    return cliConnectors.filter(connector => {
+    return localizedCliConnectors.filter(connector => {
       if (category !== '全部' && connector.category !== category) return false
       if (keyword.length === 0) return true
       return `${connector.name} ${connector.vendor} ${connector.description} ${connector.examples.join(' ')}`.toLowerCase().includes(keyword)
     })
-  }, [category, cliConnectors, query])
+  }, [category, localizedCliConnectors, query])
 
   const gridEntries = useMemo(() => {
     const rank = new Map<string, number>(BUILTIN_CATEGORIES.map((category, index) => [category, index]))
@@ -1594,7 +1676,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
           body: JSON.stringify({ connectorId: card.id, token }),
         }))
         const connection = response.value?.connection
-        if (connection === undefined) throw new ApiError('invalid_response', '保存失败：宿主没有返回连接')
+        if (connection === undefined) throw new ApiError('invalid_response', tr('保存失败：宿主没有返回连接'))
         applyConnection(connection)
         if (connection.authorized && connection.error === undefined && connection.tools.length === 0) refreshSoon()
         setCredentialCard(current => current !== null && current.id === card.id ? null : current)
@@ -1717,7 +1799,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
       body: JSON.stringify({ connectorId: card.id }),
     }))
     const connection = response.value?.connection
-    if (connection === undefined) throw new ApiError('invalid_response', '安装失败：宿主没有返回连接')
+    if (connection === undefined) throw new ApiError('invalid_response', tr('安装失败：宿主没有返回连接'))
     return connection
   }
 
@@ -1771,7 +1853,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
           setDialogInstall(false)
         }
         if (connection === undefined) {
-          throw new ApiError('not_installed', '请先安装连接器，再发起授权')
+          throw new ApiError('not_installed', tr('请先安装连接器，再发起授权'))
         }
         if (force || !connection.authorized) {
           window.dispatchEvent(new CustomEvent('dshc:flow-authorizing', { detail: { cardId: card.id } }))
@@ -1829,7 +1911,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
           { method: 'POST', body: JSON.stringify({ instanceUrl }) },
         ))
         const connection = response.value?.connection
-        if (connection === undefined) throw new ApiError('invalid_response', '保存地址失败：宿主没有返回连接')
+        if (connection === undefined) throw new ApiError('invalid_response', tr('保存地址失败：宿主没有返回连接'))
         applyConnection(connection)
         setInstanceCard(null)
         setDialogError(null)
@@ -1959,10 +2041,10 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
   useEffect(() => {
     if (variant !== 'overlay' || flowRequest === null || loading) return
     const cardId = flowRequest
-    const card = cards.find(item => item.id === cardId)
+    const card = localizedCards.find(item => item.id === cardId)
     flowRequest = null
     if (card !== undefined) openFlow(card)
-  }, [variant, flowTick, loading, cards, connections])
+  }, [variant, flowTick, loading, localizedCards, connections])
 
   useEffect(() => {
     if (variant !== 'overlay') return
@@ -2290,10 +2372,10 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
     <div className={variant === 'overlay' ? 'dshc-root dshc-flow-root' : 'dshc-root'}>
       <div className="dshc-inner">
         <header className="dshc-header">
-          <h1>连接器</h1>
+          <h1>{tr('连接器')}</h1>
           <button type="button" className="dshc-btn dshc-btn-primary dshc-create" onClick={() => setCustomOpen(true)}>
             <IconPlus size={13} />
-            自定义连接器
+            {tr('自定义连接器')}
           </button>
         </header>
 
@@ -2314,7 +2396,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
               className={item === category ? 'dshc-tab dshc-tab-active' : 'dshc-tab'}
               onClick={() => setCategory(item)}
             >
-              {item}
+              {tr(item)}
             </button>
           ))}
         </nav>
@@ -2328,7 +2410,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
             data-lpignore="true"
             data-1p-ignore="true"
             data-bwignore="true"
-            placeholder="搜索连接器"
+            placeholder={tr('搜索连接器')}
             value={query}
             onChange={event => setQuery(event.target.value)}
           />
@@ -2336,8 +2418,8 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
             <button
               type="button"
               className="dshc-search-clear"
-              aria-label="清空搜索"
-              title="清空搜索"
+              aria-label={tr('清空搜索')}
+              title={tr('清空搜索')}
               onMouseDown={event => event.preventDefault()}
               onClick={() => {
                 setQuery('')
@@ -2352,7 +2434,7 @@ function Panel({ startTrial, variant = 'panel' }: PanelProps): JSX.Element {
         {error !== null && <div className="dshc-error">{error}</div>}
 
         {visible.length === 0 && visibleCli.length === 0
-          ? <div className="dshc-empty">{loading ? '正在加载连接器…' : '没有匹配的连接器'}</div>
+          ? <div className="dshc-empty">{loading ? tr('正在加载连接器…') : tr('没有匹配的连接器')}</div>
           : (
             <div className="dshc-grid">
               {gridEntries.map(entry => entry.kind === 'mcp' ? renderCard(entry.card) : renderCli(entry.connector))}
@@ -2612,24 +2694,24 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
   const canTry = connected && enabled && connector.skills.installed && !busy
   const error = !busy && connector.phase === 'error' && connector.lastError !== undefined ? connector.lastError : undefined
   const busyLabel = connector.phase === 'installing'
-    ? '安装中…'
+    ? tr('安装中…')
     : connector.phase === 'updating'
-      ? '更新中…'
+      ? tr('更新中…')
       : connector.phase === 'uninstalling'
-        ? '卸载中…'
-        : connector.phase === 'configuring' ? '配置中…' : '登录中…'
+        ? tr('卸载中…')
+        : connector.phase === 'configuring' ? tr('配置中…') : tr('登录中…')
   const busyProgress = connector.phase === 'installing'
-    ? '安装进度'
+    ? tr('安装进度')
     : connector.phase === 'updating'
-      ? '更新进度'
-      : connector.phase === 'uninstalling' ? '卸载进度' : '登录进度'
+      ? tr('更新进度')
+      : connector.phase === 'uninstalling' ? tr('卸载进度') : tr('登录进度')
   const stateLabel = busy
-    ? '，处理中'
+    ? tr('，处理中')
     : !connector.installed
-      ? '，未安装'
+      ? tr('，未安装')
       : !connector.authenticated
-        ? '，已安装未登录'
-        : enabled ? '，已登录' : '，已停用'
+        ? tr('，已安装未登录')
+        : enabled ? tr('，已登录') : tr('，已停用')
 
   const toggleMenu = (button: HTMLElement): void => {
     const rect = button.getBoundingClientRect()
@@ -2678,7 +2760,7 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
         className={menuOpen ? 'dshc-card dshc-card-menu-open' : 'dshc-card'}
         role="button"
         tabIndex={0}
-        aria-label={`查看 ${connector.name}${stateLabel}`}
+        aria-label={tr("查看 {v0}{v1}", { v0: connector.name, v1: stateLabel })}
         onClick={() => {
           if (menuOpen) {
             setMenuOpen(false)
@@ -2710,15 +2792,15 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
           {connector.description}
         </p>
         <div className="dshc-card-foot">
-          <span className="dshc-badge">{connector.category}</span>
+          <span className="dshc-badge">{tr(connector.category)}</span>
           {!connector.installed ? (
             <span className="dshc-card-install-actions">
               {error !== undefined && (
                 <button
                   type="button"
                   className="dshc-card-action dshc-card-action-error dshc-card-status"
-                  title="查看错误日志"
-                  aria-label={`查看 ${connector.name} 错误日志`}
+                  title={tr("查看错误日志")}
+                  aria-label={tr("查看 {v0} 错误日志", { v0: connector.name })}
                   onClick={event => {
                     event.stopPropagation()
                     onOpenError()
@@ -2732,8 +2814,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                 className={busy
                   ? 'dshc-card-action dshc-card-action-connect dshc-card-action-loading'
                   : 'dshc-card-action dshc-card-action-connect'}
-                title="安装"
-                aria-label={`安装 ${connector.name} CLI`}
+                title={tr("安装")}
+                aria-label={tr("安装 {v0} CLI", { v0: connector.name })}
                 onClick={event => {
                   event.stopPropagation()
                   if (busy) onOpenInstall()
@@ -2748,7 +2830,7 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
               <button
                 type="button"
                 className="dshc-card-auth"
-                aria-label={busy ? `查看 ${connector.name} ${busyProgress}` : `登录 ${connector.name}`}
+                aria-label={busy ? tr("查看 {v0} {v1}", { v0: connector.name, v1: busyProgress }) : tr("登录 {v0}", { v0: connector.name })}
                 title={busy ? (connector.stage ?? busyLabel) : undefined}
                 onClick={event => {
                   event.stopPropagation()
@@ -2759,14 +2841,14 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                 }}
               >
                 {busy && <Spinner inline />}
-                {busy ? busyLabel : '登录'}
+                {busy ? busyLabel : tr('登录')}
               </button>
               {!busy && (error !== undefined
                 ? <button
                     type="button"
                     className="dshc-card-action dshc-card-action-error dshc-card-status"
-                    title="查看错误日志"
-                    aria-label={`查看 ${connector.name} 错误日志`}
+                    title={tr("查看错误日志")}
+                    aria-label={tr("查看 {v0} 错误日志", { v0: connector.name })}
                     onClick={event => {
                       event.stopPropagation()
                       onOpenError()
@@ -2774,14 +2856,14 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                   >
                     <IconAlert size={16} />
                   </button>
-                : <span className="dshc-card-installed" title="CLI 已安装" aria-label="CLI 已安装">
+                : <span className="dshc-card-installed" title={tr("CLI 已安装")} aria-label={tr("CLI 已安装")}>
                     <IconCheck size={14} />
                   </span>)}
               <span className="dshc-card-more-wrap" ref={menuRef}>
                 <button
                   type="button"
                   className="dshc-card-more"
-                  aria-label={`${connector.name} 更多操作`}
+                  aria-label={tr("{v0} 更多操作", { v0: connector.name })}
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                   onClick={event => {
@@ -2806,8 +2888,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                         >
                           <IconClose size={14} />
                           {connector.phase === 'uninstalling'
-                            ? '取消卸载'
-                            : connector.phase === 'updating' ? '取消更新' : '取消登录'}
+                            ? tr('取消卸载')
+                            : connector.phase === 'updating' ? tr('取消更新') : tr('取消登录')}
                         </button>
                       </>
                     ) : (
@@ -2822,7 +2904,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                           }}
                         >
                           <IconRefresh size={14} />
-                          更新 CLI
+                          
+                          {tr("更新 CLI")}
                         </button>
                         <button
                           type="button"
@@ -2834,7 +2917,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                           }}
                         >
                           <IconTrash size={14} />
-                          卸载 CLI
+                          
+                          {tr("卸载 CLI")}
                         </button>
                       </>
                     )}
@@ -2849,7 +2933,7 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                     type="button"
                     className="dshc-card-auth"
                     title={connector.stage ?? busyLabel}
-                    aria-label={`查看 ${connector.name} ${busyProgress}`}
+                    aria-label={tr("查看 {v0} {v1}", { v0: connector.name, v1: busyProgress })}
                     onClick={event => {
                       event.stopPropagation()
                       if (connector.phase === 'installing') onOpenInstall()
@@ -2865,8 +2949,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                   ? <button
                       type="button"
                       className={`${actionClass} dshc-card-status`}
-                      title="查看错误日志"
-                      aria-label={`查看 ${connector.name} 错误日志`}
+                      title={tr("查看错误日志")}
+                      aria-label={tr("查看 {v0} 错误日志", { v0: connector.name })}
                       onClick={event => {
                         event.stopPropagation()
                         onOpenError()
@@ -2874,7 +2958,7 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                     >
                       <IconAlert size={16} />
                     </button>
-                  : <span className={`${actionClass} dshc-card-status`} title={enabled ? '已启用' : '已停用'} aria-hidden>
+                  : <span className={`${actionClass} dshc-card-status`} title={enabled ? tr('已启用') : tr('已停用')} aria-hidden>
                       <IconCheck size={16} />
                     </span>}
               <span className="dshc-card-controls">
@@ -2882,7 +2966,7 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                   <button
                     type="button"
                     className="dshc-card-more"
-                    aria-label={`${connector.name} 更多操作`}
+                    aria-label={tr("{v0} 更多操作", { v0: connector.name })}
                     aria-haspopup="menu"
                     aria-expanded={menuOpen}
                     onClick={event => {
@@ -2907,10 +2991,10 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                           >
                             <IconClose size={14} />
                             {connector.phase === 'installing'
-                              ? '取消安装'
+                              ? tr('取消安装')
                               : connector.phase === 'updating'
-                                ? '取消更新'
-                                : connector.phase === 'uninstalling' ? '取消卸载' : '取消登录'}
+                                ? tr('取消更新')
+                                : connector.phase === 'uninstalling' ? tr('取消卸载') : tr('取消登录')}
                           </button>
                         </>
                       ) : (
@@ -2926,7 +3010,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                             }}
                           >
                             <IconPlay size={14} />
-                            去试试
+                            
+                            {tr("去试试")}
                           </button>
                           <button
                             type="button"
@@ -2938,7 +3023,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                             }}
                           >
                             <IconRefresh size={14} />
-                            重新登录
+                            
+                            {tr("重新登录")}
                           </button>
                           <button
                             type="button"
@@ -2950,7 +3036,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                             }}
                           >
                             <IconPlug size={14} />
-                            解绑
+                            
+                            {tr("解绑")}
                           </button>
                           <button
                             type="button"
@@ -2962,7 +3049,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                             }}
                           >
                             <IconRefresh size={14} />
-                            更新 CLI
+                            
+                            {tr("更新 CLI")}
                           </button>
                           <button
                             type="button"
@@ -2974,7 +3062,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                             }}
                           >
                             <IconTrash size={14} />
-                            卸载 CLI
+                            
+                            {tr("卸载 CLI")}
                           </button>
                         </>
                       )}
@@ -2982,7 +3071,7 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                   )}
                 </span>
                 {togglePending
-                  ? <span className="dshc-card-toggle" role="status" aria-label="处理中">
+                  ? <span className="dshc-card-toggle" role="status" aria-label={tr("处理中")}>
                       <Spinner />
                     </span>
                   : busy
@@ -2991,8 +3080,8 @@ function CliCardView({ connector, togglePending, pending, onOpen, onInstall, onL
                         type="button"
                         role="switch"
                         aria-checked={enabled}
-                        aria-label={enabled ? `停用 ${connector.name}` : `启用 ${connector.name}`}
-                        title={enabled ? '停用' : '启用'}
+                        aria-label={enabled ? tr("停用 {v0}", { v0: connector.name }) : tr("启用 {v0}", { v0: connector.name })}
+                        title={enabled ? tr('停用') : tr('启用')}
                         className="dshc-switch"
                         onClick={event => {
                           event.stopPropagation()
@@ -3033,14 +3122,14 @@ function CliInstallDialog({ connector, pending, onClose, onConfirm, onCancel }: 
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="dshc-dialog dshc-dialog-detail" role="dialog" aria-modal="true" aria-label={`安装 ${connector.name} CLI`}>
+      <div className="dshc-dialog dshc-dialog-detail" role="dialog" aria-modal="true" aria-label={tr("安装 {v0} CLI", { v0: connector.name })}>
         <div className="dshc-dialog-head">
           <span className="dshc-dialog-avatar"><CliLogo connector={connector} size={28} /></span>
           <div className="dshc-dialog-title">
-            <h2>{done ? '安装完成' : `安装 ${connector.name} CLI`}</h2>
+            <h2>{done ? tr('安装完成') : tr("安装 {v0} CLI", { v0: connector.name })}</h2>
             <span>{connector.vendor}</span>
           </div>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
@@ -3049,30 +3138,31 @@ function CliInstallDialog({ connector, pending, onClose, onConfirm, onCancel }: 
             <>
               <div className="dshc-cli-wait">
                 <Spinner />
-                <span>{connector.stage ?? '安装中…'}</span>
+                <span>{connector.stage ?? tr('安装中…')}</span>
               </div>
               {connector.output !== undefined && connector.output.trim() !== '' && (
                 <details className="dshc-cli-output" open>
-                  <summary>安装输出</summary>
+                  <summary>{tr("安装输出")}</summary>
                   <pre>{connector.output.slice(-4000)}</pre>
                 </details>
               )}
             </>
           ) : done ? (
             <>
-              <p className="dshc-dialog-hint">CLI 已安装{connector.version === undefined ? '' : ` · v${connector.version}`}。登录请回到卡片点击「登录」。</p>
+              <p className="dshc-dialog-hint">{tr("CLI 已安装")}{connector.version === undefined ? '' : ` · v${connector.version}`}{tr("。登录请回到卡片点击「登录」。")}</p>
               {connector.skills.installed && (
-                <p className="dshc-dialog-hint">已发现 {connector.skills.count} 个 Skills。</p>
+                <p className="dshc-dialog-hint">{tr("已发现")} {connector.skills.count}  {tr("个 Skills。")}</p>
               )}
             </>
           ) : (
             <>
               <p className="dshc-dialog-hint">
-                将执行以下命令安装官方 CLI 与 Skills。会写入本机 npm 全局目录和 <code>~/.agents/skills</code>，影响本机其他 Agent。
+                
+                {tr("将执行以下命令安装官方 CLI 与 Skills。会写入本机 npm 全局目录和")} <code>~/.agents/skills</code>{tr("，影响本机其他 Agent。")}
               </p>
               <pre className="dshc-cli-commands">{connector.installHint.join('\n')}</pre>
               <p className="dshc-dialog-hint">
-                <a className="dshc-link" href={connector.docsUrl} target="_blank" rel="noreferrer">查看官方安装文档</a>
+                <a className="dshc-link" href={connector.docsUrl} target="_blank" rel="noreferrer">{tr("查看官方安装文档")}</a>
               </p>
               {failed && <p className="dshc-dialog-error">{connector.lastError}</p>}
             </>
@@ -3082,16 +3172,16 @@ function CliInstallDialog({ connector, pending, onClose, onConfirm, onCancel }: 
           <span className="dshc-dialog-actions-right">
             {busy ? (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancel}>取消安装</button>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>关闭</button>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancel}>{tr("取消安装")}</button>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>{tr("关闭")}</button>
               </>
             ) : done ? (
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>关闭</button>
+              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>{tr("关闭")}</button>
             ) : (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>取消</button>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>{tr("取消")}</button>
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onConfirm}>
-                  {failed ? '重试' : '安装'}
+                  {failed ? tr('重试') : tr('安装')}
                 </button>
               </>
             )}
@@ -3116,13 +3206,13 @@ function CliLoginDialog({ connector, onCancel, onClose }: CliLoginDialogProps): 
   const success = connector.authenticated && !busy
   const link = connector.link
   const statusText = busy
-    ? (connector.stage === '配置应用' ? '配置应用中' : '等待授权')
-    : success ? '已登录' : failed ? '登录失败' : '未登录'
+    ? (connector.stage === '配置应用' ? tr('配置应用中') : tr('等待授权'))
+    : success ? tr('已登录') : failed ? tr('登录失败') : tr('未登录')
   const statusClass = success
     ? 'dshc-status-pill dshc-status-pill-connected'
     : failed ? 'dshc-status-pill dshc-status-pill-error' : 'dshc-status-pill'
   const accountLabel = connector.account?.name ?? connector.account?.email
-  const statusLabel = success && accountLabel !== undefined ? `已登录 · ${accountLabel}` : statusText
+  const statusLabel = success && accountLabel !== undefined ? tr("已登录 · {v0}", { v0: accountLabel }) : statusText
   const copy = (value: string, key: string): void => {
     void (async () => {
       try {
@@ -3145,40 +3235,40 @@ function CliLoginDialog({ connector, onCancel, onClose }: CliLoginDialogProps): 
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="dshc-dialog dshc-dialog-detail" role="dialog" aria-modal="true" aria-label={`登录 ${connector.name}`}>
+      <div className="dshc-dialog dshc-dialog-detail" role="dialog" aria-modal="true" aria-label={tr("登录 {v0}", { v0: connector.name })}>
         <div className="dshc-dialog-head">
           <span className="dshc-dialog-avatar"><CliLogo connector={connector} size={28} /></span>
           <div className="dshc-dialog-title">
-            <h2>{success ? '已登录' : connector.authenticated ? '重新登录' : `登录 ${connector.name}`}</h2>
+            <h2>{success ? tr('已登录') : connector.authenticated ? tr('重新登录') : tr("登录 {v0}", { v0: connector.name })}</h2>
             <span>{connector.vendor}</span>
           </div>
           <span className={`${statusClass} dshc-dialog-status-pill`} title={accountLabel}>
             {busy && <Spinner inline />}
             {statusLabel}
           </span>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
         <div className="dshc-dialog-content">
           {success ? (
-            <p className="dshc-dialog-hint">账号已连接，可以关闭此窗口并让 Agent 使用官方 Skills。</p>
+            <p className="dshc-dialog-hint">{tr("账号已连接，可以关闭此窗口并让 Agent 使用官方 Skills。")}</p>
           ) : (
             <>
               <p className="dshc-dialog-hint">
                 {busy
                   ? connector.stage === '配置应用'
-                    ? '正在准备应用配置，授权页面会自动打开；若未打开，请点击「打开授权页面」。'
-                    : '请在浏览器完成登录授权，完成后会自动同步。'
+                    ? tr('正在准备应用配置，授权页面会自动打开；若未打开，请点击「打开授权页面」。')
+                    : tr('请在浏览器完成登录授权，完成后会自动同步。')
                   : failed
-                    ? '登录未完成，请关闭后重新点击「登录」；完整错误可从卡片感叹号查看。'
-                    : '登录流程已结束或尚未开始。'}
+                    ? tr('登录未完成，请关闭后重新点击「登录」；完整错误可从卡片感叹号查看。')
+                    : tr('登录流程已结束或尚未开始。')}
               </p>
               {connector.code !== undefined && (
                 <div className="dshc-cli-code">
                   <code>{connector.code}</code>
                   <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={() => copy(connector.code ?? '', 'code')}>
-                    {copied === 'code' ? '已复制' : copyFailed === 'code' ? '复制失败' : '复制设备码'}
+                    {copied === 'code' ? tr('已复制') : copyFailed === 'code' ? tr('复制失败') : tr('复制设备码')}
                   </button>
                 </div>
               )}
@@ -3195,12 +3285,13 @@ function CliLoginDialog({ connector, onCancel, onClose }: CliLoginDialogProps): 
                 onClose()
               }}
             >
-              取消登录
+              
+              {tr("取消登录")}
             </button>
           )}
           <span className="dshc-dialog-actions-right">
             {success ? (
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>完成</button>
+              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>{tr("完成")}</button>
             ) : (
               <>
                 {link !== undefined && (
@@ -3209,18 +3300,20 @@ function CliLoginDialog({ connector, onCancel, onClose }: CliLoginDialogProps): 
                     className="dshc-btn dshc-btn-md dshc-btn-outline"
                     onClick={() => copy(link, 'link')}
                   >
-                    {copied === 'link' ? '已复制' : copyFailed === 'link' ? '复制失败' : '复制链接'}
+                    {copied === 'link' ? tr('已复制') : copyFailed === 'link' ? tr('复制失败') : tr('复制链接')}
                   </button>
                 )}
                 {link !== undefined
                   ? (
                       <a className="dshc-btn dshc-btn-md dshc-btn-primary" href={link} target="_blank" rel="noreferrer">
-                        打开授权页面
+                        
+                        {tr("打开授权页面")}
                       </a>
                     )
                   : (
                       <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                        关闭
+                        
+                        {tr("关闭")}
                       </button>
                     )}
               </>
@@ -3258,14 +3351,14 @@ function CliUninstallDialog({ connector, running, pending, error, onClose, onCon
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="dshc-dialog" role="dialog" aria-modal="true" aria-busy={running} aria-label={`卸载 ${connector.name} CLI`}>
+      <div className="dshc-dialog" role="dialog" aria-modal="true" aria-busy={running} aria-label={tr("卸载 {v0} CLI", { v0: connector.name })}>
         <div className="dshc-dialog-head">
           <span className="dshc-dialog-avatar"><CliLogo connector={connector} size={28} /></span>
           <div className="dshc-dialog-title">
-            <h2>卸载 {connector.name} CLI</h2>
+            <h2>{tr("卸载")} {connector.name} CLI</h2>
             <span>{connector.vendor}</span>
           </div>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
@@ -3274,21 +3367,23 @@ function CliUninstallDialog({ connector, running, pending, error, onClose, onCon
             <>
               <div className="dshc-cli-wait">
                 <Spinner />
-                <span>{connector.stage ?? '正在卸载 CLI 与官方 Skills…'}</span>
+                <span>{connector.stage ?? tr('正在卸载 CLI 与官方 Skills…')}</span>
               </div>
               <p className="dshc-dialog-hint">
-                卸载在宿主侧继续执行；关闭弹窗不会中止，可以从卡片重新打开进度。
+                
+                {tr("卸载在宿主侧继续执行；关闭弹窗不会中止，可以从卡片重新打开进度。")}
               </p>
             </>
           ) : (
             <>
               <p className="dshc-dialog-body">
-                将卸载本机 npm 全局 CLI{connector.skills.count > 0 ? `，并删除 ~/.agents/skills 下 ${connector.skills.count} 个官方 Skills` : ''}。
+                
+                {tr("将卸载本机 npm 全局 CLI")}{connector.skills.count > 0 ? tr("，并删除 ~/.agents/skills 下 {v0} 个官方 Skills", { v0: connector.skills.count }) : ''}。
               </p>
               <p className="dshc-dialog-hint">
                 {connector.skills.count > 0
-                  ? '其他 Agent 将无法继续使用这些 Skills，当前登录态也会清除；需要重新安装才能恢复。'
-                  : '其他 Agent 将无法继续使用该 CLI，当前登录态也会清除；需要重新安装才能恢复。'}
+                  ? tr('其他 Agent 将无法继续使用这些 Skills，当前登录态也会清除；需要重新安装才能恢复。')
+                  : tr('其他 Agent 将无法继续使用该 CLI，当前登录态也会清除；需要重新安装才能恢复。')}
               </p>
             </>
           )}
@@ -3304,18 +3399,21 @@ function CliUninstallDialog({ connector, running, pending, error, onClose, onCon
                 onClick={onCancel}
               >
                 {pending && <Spinner inline />}
-                取消卸载
+                
+                {tr("取消卸载")}
               </button>
               <span className="dshc-dialog-actions-right">
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                  关闭
+                  
+                  {tr("关闭")}
                 </button>
               </span>
             </>
           ) : (
             <>
               <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                取消
+                
+                {tr("取消")}
               </button>
               <button
                 type="button"
@@ -3324,7 +3422,7 @@ function CliUninstallDialog({ connector, running, pending, error, onClose, onCon
                 onClick={onConfirm}
               >
                 {pending && <Spinner inline />}
-                {pending ? '启动中…' : '卸载 CLI'}
+                {pending ? tr('启动中…') : tr('卸载 CLI')}
               </button>
             </>
           )}
@@ -3358,14 +3456,14 @@ function CliUpdateDialog({ connector, running, started, error, onClose }: CliUpd
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="dshc-dialog" role="dialog" aria-modal="true" aria-busy={running} aria-label={`更新 ${connector.name} CLI`}>
+      <div className="dshc-dialog" role="dialog" aria-modal="true" aria-busy={running} aria-label={tr("更新 {v0} CLI", { v0: connector.name })}>
         <div className="dshc-dialog-head">
           <span className="dshc-dialog-avatar"><CliLogo connector={connector} size={28} /></span>
           <div className="dshc-dialog-title">
-            <h2>更新 {connector.name} CLI</h2>
+            <h2>{tr("更新")} {connector.name} CLI</h2>
             <span>{connector.vendor}</span>
           </div>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
@@ -3374,15 +3472,16 @@ function CliUpdateDialog({ connector, running, started, error, onClose }: CliUpd
             <>
               <div className="dshc-cli-wait">
                 <Spinner />
-                <span>{connector.stage ?? '正在更新 CLI…'}</span>
+                <span>{connector.stage ?? tr('正在更新 CLI…')}</span>
               </div>
               <p className="dshc-dialog-hint">
-                更新会原地升级 npm 全局 CLI 并重新拉取 Skills，不会清除登录态；关闭弹窗不会中止，可再次打开查看进度。
+                
+                {tr("更新会原地升级 npm 全局 CLI 并重新拉取 Skills，不会清除登录态；关闭弹窗不会中止，可再次打开查看进度。")}
               </p>
             </>
           ) : (
             <p className="dshc-dialog-body">
-              {started ? `已更新到 v${connector.version ?? '最新版本'}。` : '准备更新…'}
+              {started ? tr("已更新到 v{v0}。", { v0: connector.version ?? tr('最新版本') }) : tr('准备更新…')}
             </p>
           )}
           {error !== null && <p className="dshc-dialog-error">{error}</p>}
@@ -3390,7 +3489,7 @@ function CliUpdateDialog({ connector, running, started, error, onClose }: CliUpd
         <div className="dshc-dialog-actions">
           <span className="dshc-dialog-actions-right">
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-              {running ? '后台继续' : '完成'}
+              {running ? tr('后台继续') : tr('完成')}
             </button>
           </span>
         </div>
@@ -3423,12 +3522,12 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
   const enabled = connector.enabled !== false
   const canTry = connector.authenticated && connector.installed && enabled && connector.skills.installed && !busy
   const status = busy
-    ? (connector.stage ?? '处理中')
+    ? (connector.stage ?? tr('处理中'))
     : !connector.installed
-      ? '未安装'
+      ? tr('未安装')
       : !connector.authenticated
-        ? '已安装未登录'
-        : enabled ? '已登录' : '已停用'
+        ? tr('已安装未登录')
+        : enabled ? tr('已登录') : tr('已停用')
   const statusClass = connector.authenticated && enabled && !busy
     ? 'dshc-status-pill dshc-status-pill-connected'
     : 'dshc-status-pill'
@@ -3484,12 +3583,12 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
   const exampleTipText = exampleTip === null
     ? null
     : exampleTip.action === 'try'
-      ? (canTry ? '去试试' : !connector.authenticated ? '登录后可用' : !enabled ? '已停用' : 'Skills 未就绪')
+      ? (canTry ? tr('去试试') : !connector.authenticated ? tr('登录后可用') : !enabled ? tr('已停用') : tr('Skills 未就绪'))
       : copied === exampleTip.index
-        ? '已复制'
+        ? tr('已复制')
         : copyFailed === exampleTip.index
-          ? '复制失败'
-          : '复制'
+          ? tr('复制失败')
+          : tr('复制')
 
   return (
     <div
@@ -3503,10 +3602,10 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
           <span className="dshc-avatar dshc-dialog-avatar dshc-dialog-avatar-lg"><CliLogo connector={connector} size={32} /></span>
           <div className="dshc-dialog-title">
             <h2>{connector.name}</h2>
-            <span>{[connector.vendor, connector.category].join(' · ')}</span>
+            <span>{[connector.vendor, tr(connector.category)].join(' · ')}</span>
           </div>
           <span className={`${statusClass} dshc-dialog-status-pill`} title={accountTitle}>{statusWithAccount}</span>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
@@ -3514,26 +3613,27 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
           <p className="dshc-dialog-body">{connector.description}</p>
           {connector.versionOutdated && (
             <p className="dshc-dialog-error">
-              CLI 版本 {connector.version ?? '未知'} 低于官方要求 {connector.minVersion}，请用「更多 → 更新 CLI」升级。
+              
+              {tr("CLI 版本")} {connector.version ?? tr('未知')}  {tr("低于官方要求")} {connector.minVersion}{tr("，请用「更多 → 更新 CLI」升级。")}
             </p>
           )}
           {capabilities !== undefined && capabilities.items.length > 0 && (
             <section className="dshc-tools dshc-capabilities">
               <div className="dshc-tools-head dshc-capability-head">
-                <h3>可用能力</h3>
+                <h3>{tr("可用能力")}</h3>
                 <span
                   className="dshc-tools-count"
                   title={capabilities.kind === 'products'
-                    ? `${capabilities.total} 个命令`
+                    ? tr("{v0} 个命令", { v0: capabilities.total })
                     : capabilities.kind === 'groups'
-                      ? `${capabilities.total} 个命令组`
-                      : `${capabilities.total} 个 Skills`}
+                      ? tr("{v0} 个命令组", { v0: capabilities.total })
+                      : tr("{v0} 个 Skills", { v0: capabilities.total })}
                 >
                   {capabilities.kind === 'products'
-                    ? `${capabilities.items.length} 个产品`
+                    ? tr("{v0} 个产品", { v0: capabilities.items.length })
                     : capabilities.kind === 'groups'
-                      ? `${capabilities.items.length} 个命令组`
-                      : `${capabilities.total} 个 Skills`}
+                      ? tr("{v0} 个命令组", { v0: capabilities.items.length })
+                      : tr("{v0} 个 Skills", { v0: capabilities.total })}
                 </span>
               </div>
               <div className="dshc-tool-list">
@@ -3551,14 +3651,14 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
                   className="dshc-tools-toggle"
                   onClick={() => setShowAllCapabilities(current => !current)}
                 >
-                  {showAllCapabilities ? '收起' : `展开全部 ${capabilities.items.length} 个`}
+                  {showAllCapabilities ? tr('收起') : tr("展开全部 {v0} 个", { v0: capabilities.items.length })}
                 </button>
               )}
             </section>
           )}
           {connector.examples.length > 0 && (
             <section className="dshc-examples">
-              <h3>试试这样用</h3>
+              <h3>{tr("试试这样用")}</h3>
               <div className="dshc-example-list">
                 {connector.examples.map((example, index) => (
                   <div className="dshc-example" key={example}>
@@ -3571,7 +3671,7 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
                           : copyFailed === index
                             ? 'dshc-example-action dshc-example-action-error'
                             : 'dshc-example-action'}
-                        aria-label={`复制示例：${example}`}
+                        aria-label={tr("复制示例：{v0}", { v0: example })}
                         onMouseEnter={event => showExampleTip(event.currentTarget, index, 'copy')}
                         onMouseLeave={() => setExampleTip(null)}
                         onFocus={event => showExampleTip(event.currentTarget, index, 'copy')}
@@ -3587,7 +3687,7 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
                       <button
                         type="button"
                         className="dshc-example-action"
-                        aria-label={`去试试：${example}`}
+                        aria-label={tr("去试试：{v0}", { v0: example })}
                         disabled={!canTry}
                         onMouseEnter={event => showExampleTip(event.currentTarget, index, 'try')}
                         onMouseLeave={() => setExampleTip(null)}
@@ -3612,19 +3712,20 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
               disabled={busy}
               onClick={onUninstall}
             >
-              卸载 CLI
+              
+              {tr("卸载 CLI")}
             </button>
           )}
           <span className="dshc-dialog-actions-right">
             {!connector.installed ? (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>关闭</button>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onInstall}>安装</button>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>{tr("关闭")}</button>
+                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onInstall}>{tr("安装")}</button>
               </>
             ) : !connector.authenticated ? (
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onLogin}>登录</button>
+              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onLogin}>{tr("登录")}</button>
             ) : (
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>完成</button>
+              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>{tr("完成")}</button>
             )}
           </span>
         </div>
@@ -3707,31 +3808,31 @@ function CliErrorDialog({ connector, onClose }: CliErrorDialogProps): JSX.Elemen
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="dshc-dialog dshc-dialog-detail" role="dialog" aria-modal="true" aria-label={`${connector.name} 错误日志`}>
+      <div className="dshc-dialog dshc-dialog-detail" role="dialog" aria-modal="true" aria-label={tr("{v0} 错误日志", { v0: connector.name })}>
         <div className="dshc-dialog-head dshc-dialog-head-detail">
           <span className="dshc-avatar dshc-dialog-avatar dshc-dialog-avatar-lg"><IconAlert size={20} /></span>
           <div className="dshc-dialog-title">
-            <h2>错误日志</h2>
+            <h2>{tr("错误日志")}</h2>
             <span>{connector.name} · CLI</span>
           </div>
-          <span className="dshc-status-pill dshc-status-pill-error dshc-dialog-status-pill">处理失败</span>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+          <span className="dshc-status-pill dshc-status-pill-error dshc-dialog-status-pill">{tr("处理失败")}</span>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
         <div className="dshc-dialog-content">
-          <p className="dshc-dialog-error">{connector.lastError ?? 'CLI 处理失败，未返回错误摘要。'}</p>
+          <p className="dshc-dialog-error">{connector.lastError ?? tr('CLI 处理失败，未返回错误摘要。')}</p>
           <section className="dshc-cli-log-section">
             <div className="dshc-tools-head">
-              <h3>运行日志</h3>
-              {!loading && log.trim() !== '' && <span className="dshc-tools-count">{log.split(/\r?\n/).length} 行</span>}
+              <h3>{tr("运行日志")}</h3>
+              {!loading && log.trim() !== '' && <span className="dshc-tools-count">{log.split(/\r?\n/).length}  {tr("行")}</span>}
             </div>
             {loading
-              ? <p className="dshc-dialog-hint"><Spinner inline /> 正在读取日志…</p>
+              ? <p className="dshc-dialog-hint"><Spinner inline />  {tr("正在读取日志…")}</p>
               : loadError !== null
                 ? <p className="dshc-dialog-error">{loadError}</p>
                 : log.trim() === ''
-                  ? <p className="dshc-dialog-hint">本次错误没有留下更多运行日志。</p>
+                  ? <p className="dshc-dialog-hint">{tr("本次错误没有留下更多运行日志。")}</p>
                   : <pre className="dshc-cli-log">{log}</pre>}
           </section>
         </div>
@@ -3743,10 +3844,10 @@ function CliErrorDialog({ connector, onClose }: CliErrorDialogProps): JSX.Elemen
             onClick={copy}
           >
             {copied ? <IconCheck size={14} /> : copyFailed ? <IconAlert size={14} /> : <IconCopy size={14} />}
-            {copied ? '已复制' : copyFailed ? '复制失败' : '复制日志'}
+            {copied ? tr('已复制') : copyFailed ? tr('复制失败') : tr('复制日志')}
           </button>
           <span className="dshc-dialog-actions-right">
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>关闭</button>
+            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>{tr("关闭")}</button>
           </span>
         </div>
       </div>
@@ -3849,30 +3950,30 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
   const instancePending = card.instance !== undefined
     && connection !== undefined
     && connection.instanceReady !== true
-  const actionText = connecting ? '连接中…' : error ?? (connection === undefined
-    ? '查看详情'
+  const actionText = connecting ? tr('连接中…') : error ?? (connection === undefined
+    ? tr('查看详情')
     : unauthorized
-      ? (instancePending ? '待配置' : '未授权')
+      ? (instancePending ? tr('待配置') : tr('未授权'))
       : !enabled
-        ? '已停用'
+        ? tr('已停用')
         : toolCount > 0
-          ? `已连接 · ${toolCount} 个工具\n${connection.tools.join('\n')}`
-          : '已连接 · 注册中')
+          ? tr("已连接 · {v0} 个工具\n{v1}", { v0: toolCount, v1: connection.tools.join('\n') })
+          : tr('已连接 · 注册中'))
   const installActionClass = installing
     ? 'dshc-card-action dshc-card-action-connect dshc-card-action-loading'
     : 'dshc-card-action dshc-card-action-connect'
-  const installLabel = installing ? '安装中…' : error !== undefined ? '重试' : '安装'
+  const installLabel = installing ? tr('安装中…') : error !== undefined ? tr('重试') : tr('安装')
   const stateLabel = connecting
-    ? '，连接中'
+    ? tr('，连接中')
     : error !== undefined
-      ? '，连接失败'
+      ? tr('，连接失败')
       : connection === undefined
         ? ''
         : unauthorized
-          ? (instancePending ? '，待配置' : '，未授权')
+          ? (instancePending ? tr('，待配置') : tr('，未授权'))
           : !enabled
-            ? '，已停用'
-            : toolCount > 0 ? `，已连接，${toolCount} 个工具` : '，已连接，正在注册工具'
+            ? tr('，已停用')
+            : toolCount > 0 ? tr("，已连接，{v0} 个工具", { v0: toolCount }) : tr('，已连接，正在注册工具')
   const deleteItem = (
     <button
       type="button"
@@ -3885,7 +3986,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
       }}
     >
       <IconTrash size={14} />
-      删除
+      
+      {tr("删除")}
     </button>
   )
   const disconnectItem = onDelete === undefined ? null : (
@@ -3899,7 +4001,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
       }}
     >
       <IconPlug size={14} />
-      断开
+      
+      {tr("断开")}
     </button>
   )
   const reconfigureItem = onReconfigureInstance === undefined ? null : (
@@ -3914,7 +4017,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
       }}
     >
       <IconServer size={14} />
-      更换{instanceNoun(card)}
+      
+      {tr("更换")}{instanceNoun(card)}
     </button>
   )
   const editItem = onEditCustom === undefined ? null : (
@@ -3929,7 +4033,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
       }}
     >
       <IconPencil size={14} />
-      编辑配置
+      
+      {tr("编辑配置")}
     </button>
   )
 
@@ -3939,7 +4044,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
         className={menuOpen ? 'dshc-card dshc-card-menu-open' : 'dshc-card'}
       role="button"
       tabIndex={0}
-      aria-label={`查看 ${card.name}${stateLabel}`}
+      aria-label={tr("查看 {v0}{v1}", { v0: card.name, v1: stateLabel })}
       onClick={() => {
         if (menuOpen) {
           setMenuOpen(false)
@@ -3972,7 +4077,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
       </p>
       {error !== undefined && <p className="dshc-card-error" title={error}>{error}</p>}
       <div className="dshc-card-foot">
-        <span className="dshc-badge">{card.category}</span>
+        <span className="dshc-badge">{tr(card.category)}</span>
         {connection === undefined ? (
           <span className="dshc-card-install-actions">
             {onDelete !== undefined && (
@@ -3980,7 +4085,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                 <button
                   type="button"
                   className="dshc-card-more"
-                  aria-label={`${card.name} 更多操作`}
+                  aria-label={tr("{v0} 更多操作", { v0: card.name })}
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                   onClick={event => {
@@ -4002,7 +4107,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
               type="button"
               className={installActionClass}
               title={installLabel}
-              aria-label={installing ? `正在安装 ${card.name}` : `${installLabel} ${card.name}`}
+              aria-label={installing ? tr("正在安装 {v0}", { v0: card.name }) : `${installLabel} ${card.name}`}
               disabled={installing}
               onClick={event => {
                 event.stopPropagation()
@@ -4018,10 +4123,10 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
               type="button"
               className="dshc-card-auth"
               aria-label={authorizing
-                ? `取消授权 ${card.name}`
+                ? tr("取消授权 {v0}", { v0: card.name })
                 : connecting
-                  ? `正在连接 ${card.name}`
-                  : `${instancePending ? '配置' : '授权'} ${card.name}`}
+                  ? tr("正在连接 {v0}", { v0: card.name })
+                  : `${instancePending ? tr('配置') : tr('授权')} ${card.name}`}
               disabled={connecting}
               onClick={event => {
                 event.stopPropagation()
@@ -4030,13 +4135,13 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
               }}
             >
               {(authorizing || connecting) && <Spinner inline />}
-              {authorizing ? '取消授权' : connecting ? '连接中…' : (instancePending ? '配置' : '授权')}
+              {authorizing ? tr('取消授权') : connecting ? tr('连接中…') : (instancePending ? tr('配置') : tr('授权'))}
             </button>
             <span
               className="dshc-card-installed"
               role="img"
-              aria-label={instancePending ? '已安装，待配置' : '已安装，待授权'}
-              title={instancePending ? '已安装，待配置' : '已安装，待授权'}
+              aria-label={instancePending ? tr('已安装，待配置') : tr('已安装，待授权')}
+              title={instancePending ? tr('已安装，待配置') : tr('已安装，待授权')}
             >
               <IconCheck size={14} />
             </span>
@@ -4044,7 +4149,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
               <button
                 type="button"
                 className="dshc-card-more"
-                aria-label={`${card.name} 更多操作`}
+                aria-label={tr("{v0} 更多操作", { v0: card.name })}
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 onClick={event => {
@@ -4066,7 +4171,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
           </span>
         ) : (
           <span className="dshc-card-actions">
-            <span className={`${actionClass} dshc-card-status`} title={connecting ? '连接中…' : authorizing ? '授权中…' : actionText} aria-hidden>
+            <span className={`${actionClass} dshc-card-status`} title={connecting ? tr('连接中…') : authorizing ? tr('授权中…') : actionText} aria-hidden>
               {(authorizing || connecting)
                 ? <Spinner />
                 : error !== undefined
@@ -4078,7 +4183,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                 <button
                   type="button"
                   className="dshc-card-more"
-                  aria-label={`${card.name} 更多操作`}
+                  aria-label={tr("{v0} 更多操作", { v0: card.name })}
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                   onClick={event => {
@@ -4101,7 +4206,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                       }}
                     >
                       <IconPlay size={14} />
-                      去试试
+                      
+                      {tr("去试试")}
                     </button>
                     {onUpdateCredential !== undefined && (
                       <button
@@ -4114,7 +4220,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                         }}
                       >
                         <IconRefresh size={14} />
-                        更新令牌
+                        
+                        {tr("更新令牌")}
                       </button>
                     )}
                     {onReauthorize !== undefined && (
@@ -4128,7 +4235,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                         }}
                       >
                         <IconRefresh size={14} />
-                        重新授权
+                        
+                        {tr("重新授权")}
                       </button>
                     )}
                     {reconfigureItem}
@@ -4143,7 +4251,8 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                         }}
                       >
                         <IconLink size={14} />
-                        取消授权
+                        
+                        {tr("取消授权")}
                       </button>
                     )}
                     {editItem}
@@ -4153,15 +4262,15 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                 )}
               </span>
               {togglePending
-                ? <span className="dshc-card-toggle" role="status" aria-label="处理中">
+                ? <span className="dshc-card-toggle" role="status" aria-label={tr("处理中")}>
                     <Spinner />
                   </span>
                 : <button
                     type="button"
                     role="switch"
                     aria-checked={enabled}
-                    aria-label={enabled ? `停用 ${card.name}` : `启用 ${card.name}`}
-                    title={enabled ? '停用' : '启用'}
+                    aria-label={enabled ? tr("停用 {v0}", { v0: card.name }) : tr("启用 {v0}", { v0: card.name })}
+                    title={enabled ? tr('停用') : tr('启用')}
                     className="dshc-switch"
                     onClick={event => {
                       event.stopPropagation()
@@ -4258,8 +4367,8 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
     && !connection.authorized
     && connection.instanceReady !== true
   const busy = pending || toggling
-  const removeLabel = onDelete === undefined ? '删除' : '断开'
-  const removingLabel = onDelete === undefined ? '删除中…' : '断开中…'
+  const removeLabel = onDelete === undefined ? tr('删除') : tr('断开')
+  const removingLabel = onDelete === undefined ? tr('删除中…') : tr('断开中…')
   const removeClass = onDelete === undefined
     ? 'dshc-btn dshc-btn-md dshc-btn-outline dshc-btn-danger'
     : 'dshc-btn dshc-btn-md dshc-btn-outline'
@@ -4308,24 +4417,24 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
   const exampleTipText = exampleTip === null
     ? null
     : exampleTip.action === 'try'
-      ? '去试试'
+      ? tr('去试试')
       : copied === exampleTip.index
-        ? '已复制'
+        ? tr('已复制')
         : copyFailed === exampleTip.index
-          ? '复制失败'
-          : '复制'
+          ? tr('复制失败')
+          : tr('复制')
 
   const statusText = connecting && connection !== undefined && connection.error === undefined
-    ? '连接中'
+    ? tr('连接中')
     : connection === undefined
-      ? '未连接'
+      ? tr('未连接')
       : unauthorized
-        ? (authorizing ? '授权中' : instancePending ? '待配置' : '未授权')
+        ? (authorizing ? tr('授权中') : instancePending ? tr('待配置') : tr('未授权'))
         : disabled
-          ? '已停用'
+          ? tr('已停用')
           : connected
-            ? '已连接'
-            : '连接失败'
+            ? tr('已连接')
+            : tr('连接失败')
   const statusClass = connection === undefined || unauthorized || disabled
     ? 'dshc-status-pill'
     : connected
@@ -4344,10 +4453,10 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
           <span className="dshc-avatar dshc-dialog-avatar dshc-dialog-avatar-lg"><ConnectorLogo card={card} /></span>
           <div className="dshc-dialog-title">
             <h2>{card.name}</h2>
-            <span>{[card.vendor, card.category].filter(Boolean).join(' · ')}</span>
+            <span>{[card.vendor, tr(card.category)].filter(Boolean).join(' · ')}</span>
           </div>
           <span className={`${statusClass} dshc-dialog-status-pill`}>{statusText}</span>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
@@ -4359,33 +4468,34 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
           {needsInstanceConfig && (
             <p className="dshc-dialog-hint">
               {card.instance?.presets === undefined
-                ? `点击「配置」填写完整的 MCP 地址；地址只保存在本机。`
-                : `点击「配置」选择${instanceNoun(card)}；选择结果只保存在本机。`}
+                ? tr("点击「配置」填写完整的 MCP 地址；地址只保存在本机。")
+                : tr("点击「配置」选择{v0}；选择结果只保存在本机。", { v0: instanceNoun(card) })}
             </p>
           )}
 
           {needsToken && connection !== undefined && !connection.authorized && !needsInstanceConfig && (
-            <p className="dshc-dialog-hint">点击「授权」后填写 {tokenLabel(card)}；令牌只保存在本机。</p>
+            <p className="dshc-dialog-hint">{tr("点击「授权」后填写")} {tokenLabel(card)}{tr("；令牌只保存在本机。")}</p>
           )}
           {needsToken && connection?.authorized === true && connection.error !== undefined && (
-            <p className="dshc-dialog-hint">点击「更新令牌」重新填写 {tokenLabel(card)}。</p>
+            <p className="dshc-dialog-hint">{tr("点击「更新令牌」重新填写")} {tokenLabel(card)}。</p>
           )}
           {oauth && connection === undefined && !showingInstall && (
-            <p className="dshc-dialog-hint">点击「安装」后会打开默认浏览器完成 {card.name} 授权。</p>
+            <p className="dshc-dialog-hint">{tr("点击「安装」后会打开默认浏览器完成")} {card.name}  {tr("授权。")}</p>
           )}
           {oauth && unauthorized && (
             <p className="dshc-dialog-hint">
               {authorizing
-                ? '已打开授权页，完成授权后会自动同步；如已关闭授权页，请点「取消授权」后重试。'
+                ? tr('已打开授权页，完成授权后会自动同步；如已关闭授权页，请点「取消授权」后重试。')
                 : needsInstanceConfig
-                  ? `已安装，点击「配置」选择${instanceNoun(card)}后开始授权。`
-                  : `已安装，点击授权后在浏览器完成 ${card.name} 授权。`}
+                  ? tr("已安装，点击「配置」选择{v0}后开始授权。", { v0: instanceNoun(card) })
+                  : tr("已安装，点击授权后在浏览器完成 {v0} 授权。", { v0: card.name })}
             </p>
           )}
           {authorizeLink !== null && authorizing && (
             <p className="dshc-dialog-hint">
-              没有自动打开浏览器？
-              <a className="dshc-link" href={authorizeLink} target="_blank" rel="noreferrer">点此授权</a>
+              
+              {tr("没有自动打开浏览器？")}
+              <a className="dshc-link" href={authorizeLink} target="_blank" rel="noreferrer">{tr("点此授权")}</a>
             </p>
           )}
           {error !== null && error !== connection?.error && <p className="dshc-dialog-error">{error}</p>}
@@ -4393,7 +4503,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
           {toolDetails.length > 0 && (
             <section className="dshc-tools">
               <div className="dshc-tools-head">
-                <h3>可用工具</h3>
+                <h3>{tr("可用工具")}</h3>
                 <span className="dshc-tools-count">
                   {toolQueryText === '' ? toolDetails.length : `${filteredTools.length}/${toolDetails.length}`}
                 </span>
@@ -4408,8 +4518,8 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                     data-1p-ignore="true"
                     data-bwignore="true"
                     spellCheck={false}
-                    aria-label="搜索工具"
-                    placeholder="搜索工具"
+                    aria-label={tr("搜索工具")}
+                    placeholder={tr("搜索工具")}
                     value={toolQuery}
                     onChange={event => setToolQuery(event.target.value)}
                   />
@@ -4417,8 +4527,8 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                     <button
                       type="button"
                       className="dshc-tools-search-clear"
-                      aria-label="清空搜索"
-                      title="清空搜索"
+                      aria-label={tr('清空搜索')}
+                      title={tr('清空搜索')}
                       onClick={() => {
                         setToolQuery('')
                         toolSearchRef.current?.focus()
@@ -4438,7 +4548,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                   />
                 ))}
                 {toolQueryText !== '' && filteredTools.length === 0 && (
-                  <p className="dshc-tools-empty">没有匹配的工具</p>
+                  <p className="dshc-tools-empty">{tr("没有匹配的工具")}</p>
                 )}
               </div>
               {toolQueryText === '' && toolDetails.length > 4 && (
@@ -4447,19 +4557,19 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                   className="dshc-tools-toggle"
                   onClick={() => setShowAllTools(current => !current)}
                 >
-                  {showAllTools ? '收起' : `展开全部 ${toolDetails.length} 个`}
+                  {showAllTools ? tr('收起') : tr("展开全部 {v0} 个", { v0: toolDetails.length })}
                 </button>
               )}
             </section>
           )}
-          {disabled && <p className="dshc-dialog-hint">已停用，启用后会重新注册工具。</p>}
+          {disabled && <p className="dshc-dialog-hint">{tr("已停用，启用后会重新注册工具。")}</p>}
           {connected && toolDetails.length === 0 && (
-            <p className="dshc-dialog-hint">{connecting ? '正在连接…' : '正在注册工具…'}</p>
+            <p className="dshc-dialog-hint">{connecting ? tr('正在连接…') : tr('正在注册工具…')}</p>
           )}
 
           {examples.length > 0 && (
             <section className="dshc-examples">
-              <h3>试试这样用</h3>
+              <h3>{tr("试试这样用")}</h3>
               <div className="dshc-example-list">
                 {examples.map((example, index) => (
                   <div className="dshc-example" key={example}>
@@ -4472,7 +4582,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                           : copyFailed === index
                             ? 'dshc-example-action dshc-example-action-error'
                             : 'dshc-example-action'}
-                        aria-label={`复制示例：${example}`}
+                        aria-label={tr("复制示例：{v0}", { v0: example })}
                         onMouseEnter={event => showExampleTip(event.currentTarget, index, 'copy')}
                         onMouseLeave={() => setExampleTip(null)}
                         onFocus={event => showExampleTip(event.currentTarget, index, 'copy')}
@@ -4488,7 +4598,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                       <button
                         type="button"
                         className="dshc-example-action"
-                        aria-label={`去试试：${example}`}
+                        aria-label={tr("去试试：{v0}", { v0: example })}
                         disabled={!canTry}
                         onMouseEnter={event => showExampleTip(event.currentTarget, index, 'try')}
                         onMouseLeave={() => setExampleTip(null)}
@@ -4509,33 +4619,39 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
         <div className="dshc-dialog-actions">
           {onDelete !== undefined && (
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost dshc-btn-danger" disabled={busy} onClick={onDelete}>
-              删除
+              
+              {tr("删除")}
             </button>
           )}
           {onEditCustom !== undefined && !authorizing && (
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onEditCustom}>
-              编辑配置
+              
+              {tr("编辑配置")}
             </button>
           )}
           {onReconfigureInstance !== undefined && connection !== undefined && !authorizing && (
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onReconfigureInstance}>
-              更换{instanceNoun(card)}
+              
+              {tr("更换")}{instanceNoun(card)}
             </button>
           )}
           {oauth && connection?.authorized === true && !authorizing && (
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onRevoke}>
-              取消授权
+              
+              {tr("取消授权")}
             </button>
           )}
           <span className="dshc-dialog-actions-right">
             {authorizing && connection?.authorized === true && (
               <>
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancelAuthorize}>
-                  取消授权
+                  
+                  {tr("取消授权")}
                 </button>
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled>
                   <Spinner />
-                  授权中…
+                  
+                  {tr("授权中…")}
                 </button>
               </>
             )}
@@ -4543,11 +4659,13 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
               authorizing ? (
                 <>
                   <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancelAuthorize}>
-                    取消授权
+                    
+                    {tr("取消授权")}
                   </button>
                   <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled>
                     <Spinner />
-                    授权中…
+                    
+                    {tr("授权中…")}
                   </button>
                 </>
               ) : (
@@ -4563,11 +4681,12 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                       onClick={onConfigureInstance}
                     >
                       {pending && <Spinner />}
-                      {pending ? '配置中…' : '配置'}
+                      {pending ? tr('配置中…') : tr('配置')}
                     </button>
                   ) : oauth ? (
                     <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onAuthorize}>
-                      授权 {card.name}
+                      
+                      {tr("授权")} {card.name}
                     </button>
                   ) : needsToken ? (
                     <button
@@ -4577,7 +4696,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                       onClick={onUpdateCredential}
                     >
                       {busy && <Spinner />}
-                      {busy ? '连接中…' : `授权 ${card.name}`}
+                      {busy ? tr('连接中…') : tr("授权 {v0}", { v0: card.name })}
                     </button>
                   ) : (
                     <button
@@ -4586,7 +4705,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                       disabled={busy}
                       onClick={() => onConnect(undefined)}
                     >
-                      {pending ? '连接中…' : '连接'}
+                      {pending ? tr('连接中…') : tr('连接')}
                     </button>
                   )}
                 </>
@@ -4603,7 +4722,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                   disabled={busy}
                   onClick={() => onToggle(true)}
                 >
-                  {toggling ? '启用中…' : '启用'}
+                  {toggling ? tr('启用中…') : tr('启用')}
                 </button>
               </>
             )}
@@ -4611,11 +4730,13 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
               noneConnecting ? (
                 <>
                   <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                    取消
+                    
+                    {tr("取消")}
                   </button>
                   <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled>
                     <Spinner />
-                    连接中…
+                    
+                    {tr("连接中…")}
                   </button>
                 </>
               ) : (
@@ -4625,18 +4746,19 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                   </button>
                   {oauth && (
                     <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onReauthorize}>
-                      重新授权
+                      
+                      {tr("重新授权")}
                     </button>
                   )}
                   {needsToken && (
                     <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onUpdateCredential}>
                       {pending && <Spinner />}
-                      {pending ? '更新中…' : '更新令牌'}
+                      {pending ? tr('更新中…') : tr('更新令牌')}
                     </button>
                   )}
                   <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onClose}>
                     {connecting && <Spinner />}
-                    {connecting ? '连接中…' : '完成'}
+                    {connecting ? tr('连接中…') : tr('完成')}
                   </button>
                 </>
               )
@@ -4653,7 +4775,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                     disabled={busy}
                     onClick={onReauthorize}
                   >
-                    {pending ? '授权中…' : '重新授权'}
+                    {pending ? tr('授权中…') : tr('重新授权')}
                   </button>
                 ) : needsToken ? (
                   <button
@@ -4663,7 +4785,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                     onClick={onUpdateCredential}
                   >
                     {pending && <Spinner />}
-                    {pending ? '更新中…' : '更新令牌'}
+                    {pending ? tr('更新中…') : tr('更新令牌')}
                   </button>
                 ) : (
                   <button
@@ -4672,7 +4794,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                     disabled={busy}
                     onClick={() => onConnect(undefined)}
                   >
-                    {pending ? '重试中…' : '重试'}
+                    {pending ? tr('重试中…') : tr('重试')}
                   </button>
                 )}
               </>
@@ -4680,7 +4802,8 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
             {connection === undefined && showingInstall && (
               <>
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={busy} onClick={onCancelInstall}>
-                  取消
+                  
+                  {tr("取消")}
                 </button>
                 {oauth && (
                   <button
@@ -4690,7 +4813,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                     onClick={onInstallOAuth}
                   >
                     {pending && <Spinner />}
-                    {pending ? '安装中…' : '安装'}
+                    {pending ? tr('安装中…') : tr('安装')}
                   </button>
                 )}
               </>
@@ -4698,7 +4821,8 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
             {connection === undefined && !showingInstall && (
               <>
                 <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                  关闭
+                  
+                  {tr("关闭")}
                 </button>
                 <button
                   type="button"
@@ -4707,7 +4831,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
                   onClick={onBeginInstall}
                 >
                   {pending && <Spinner />}
-                  {pending ? '安装中…' : '安装'}
+                  {pending ? tr('安装中…') : tr('安装')}
                 </button>
               </>
             )}
@@ -4746,17 +4870,17 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
   const noun = instanceNoun(card)
   const selectedPreset = presets?.find(item => item.url === instanceUrl)
   const title = presets === undefined
-    ? (config ? '填写地址' : '更换地址')
-    : (config ? `选择${noun}` : `更换${noun}`)
+    ? (config ? tr('填写地址') : tr('更换地址'))
+    : (config ? tr("选择{v0}", { v0: noun }) : tr("更换{v0}", { v0: noun }))
   const submitLabel = config
-    ? (isOAuthCard(card) ? '保存并授权' : isTokenCard(card) ? '保存并继续' : '保存并连接')
-    : (isOAuthCard(card) ? '保存并重新授权' : isTokenCard(card) ? '保存' : '保存并重新连接')
-  const keepLocal = presets === undefined ? '地址只保存在本机。' : '选择结果只保存在本机。'
+    ? (isOAuthCard(card) ? tr('保存并授权') : isTokenCard(card) ? tr('保存并继续') : tr('保存并连接'))
+    : (isOAuthCard(card) ? tr('保存并重新授权') : isTokenCard(card) ? tr('保存') : tr('保存并重新连接'))
+  const keepLocal = presets === undefined ? tr('地址只保存在本机。') : tr('选择结果只保存在本机。')
   const configHint = isOAuthCard(card)
-    ? `保存后会自动打开浏览器完成授权；${keepLocal}`
+    ? tr("保存后会自动打开浏览器完成授权；{v0}", { v0: keepLocal })
     : isTokenCard(card)
-      ? `保存后继续填写令牌；${keepLocal}`
-      : `保存后直接连接；${keepLocal}`
+      ? tr("保存后继续填写令牌；{v0}", { v0: keepLocal })
+      : tr("保存后直接连接；{v0}", { v0: keepLocal })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -4782,7 +4906,7 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
         className="dshc-dialog dshc-dialog-instance"
         role="dialog"
         aria-modal="true"
-        aria-label={`${config ? '填写' : '更换'} ${card.name} ${noun}`}
+        aria-label={`${config ? tr('填写') : tr('更换')} ${card.name} ${noun}`}
         noValidate
         onSubmit={event => {
           event.preventDefault()
@@ -4795,16 +4919,16 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
             <h2>{title}</h2>
             <span>{card.name}</span>
           </div>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" disabled={pending} onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} disabled={pending} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
         <div className="dshc-dialog-content">
           <p className="dshc-dialog-hint">
-            {config ? configHint : '更换后会断开当前连接、清除已有凭据，需要重新配置或授权。'}
+            {config ? configHint : tr('更换后会断开当前连接、清除已有凭据，需要重新配置或授权。')}
           </p>
           <label className="dshc-field">
-            <span>{instance?.label ?? '服务地址'}</span>
+            <span>{instance?.label ?? tr('服务地址')}</span>
             {presets === undefined
               ? (
                   <input
@@ -4849,14 +4973,14 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
             </p>
           )}
           {presets === undefined && instanceUrl.trim().startsWith('http://') && (
-            <p className="dshc-dialog-hint">非 https 地址会明文传输，请确认网络可信。</p>
+            <p className="dshc-dialog-hint">{tr("非 https 地址会明文传输，请确认网络可信。")}</p>
           )}
           {error !== null && <p className="dshc-dialog-error">{error}</p>}
         </div>
         <div className="dshc-dialog-actions">
           <span className="dshc-dialog-actions-right">
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={pending} onClick={onClose}>
-              {pending ? '关闭' : '取消'}
+              {pending ? tr('关闭') : tr('取消')}
             </button>
             <button
               type="submit"
@@ -4864,7 +4988,7 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
               disabled={pending || instanceUrl.trim() === ''}
             >
               {pending && <Spinner />}
-              {pending ? '保存中…' : submitLabel}
+              {pending ? tr('保存中…') : submitLabel}
             </button>
           </span>
         </div>
@@ -4886,8 +5010,8 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
   const [token, setToken] = useState('')
   const [tokenVisible, setTokenVisible] = useState(false)
   const help = tokenHelp(card)
-  const title = mode === 'install' ? '填写令牌' : '更新令牌'
-  const submitLabel = mode === 'install' ? '连接' : '保存'
+  const title = mode === 'install' ? tr('填写令牌') : tr('更新令牌')
+  const submitLabel = mode === 'install' ? tr('连接') : tr('保存')
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -4913,7 +5037,7 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
         className="dshc-dialog dshc-dialog-credential"
         role="dialog"
         aria-modal="true"
-        aria-label={mode === 'install' ? `填写 ${card.name} 令牌` : `更新 ${card.name} 令牌`}
+        aria-label={mode === 'install' ? tr("填写 {v0} 令牌", { v0: card.name }) : tr("更新 {v0} 令牌", { v0: card.name })}
       >
         <div className="dshc-dialog-head">
           <span className="dshc-dialog-avatar"><ConnectorLogo card={card} size={28} /></span>
@@ -4921,15 +5045,15 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
             <h2>{title}</h2>
             <span>{card.name}</span>
           </div>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
         <div className="dshc-dialog-content">
           <p className="dshc-dialog-hint">
             {mode === 'install'
-              ? `填写 ${tokenLabel(card)} 后连接；令牌只保存在本机。`
-              : '当前令牌不会显示；保存新令牌后立即替换。'}
+              ? tr("填写 {v0} 后连接；令牌只保存在本机。", { v0: tokenLabel(card) })
+              : tr('当前令牌不会显示；保存新令牌后立即替换。')}
           </p>
           <div className="dshc-field">
             <label htmlFor="dshc-credential-token">{tokenLabel(card)}</label>
@@ -4944,7 +5068,7 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
                 data-1p-ignore="true"
                 data-bwignore="true"
                 disabled={saving}
-                placeholder={mode === 'install' ? '粘贴令牌' : '粘贴新令牌'}
+                placeholder={mode === 'install' ? tr('粘贴令牌') : tr('粘贴新令牌')}
                 value={token}
                 onChange={event => setToken(event.target.value)}
                 onKeyDown={event => {
@@ -4957,8 +5081,8 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
               <button
                 type="button"
                 className="dshc-field-reveal"
-                aria-label={tokenVisible ? '隐藏令牌' : '显示令牌'}
-                title={tokenVisible ? '隐藏令牌' : '显示令牌'}
+                aria-label={tokenVisible ? tr('隐藏令牌') : tr('显示令牌')}
+                title={tokenVisible ? tr('隐藏令牌') : tr('显示令牌')}
                 aria-pressed={tokenVisible}
                 disabled={saving}
                 onMouseDown={event => event.preventDefault()}
@@ -4977,12 +5101,12 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
             </p>
           )}
           {error !== null && <p className="dshc-dialog-error">{error}</p>}
-          {saving && <p className="dshc-dialog-hint">关闭弹窗不会中断连接，结果会显示在卡片上。</p>}
+          {saving && <p className="dshc-dialog-hint">{tr("关闭弹窗不会中断连接，结果会显示在卡片上。")}</p>}
         </div>
         <div className="dshc-dialog-actions">
           <span className="dshc-dialog-actions-right">
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-              {saving ? '关闭' : '取消'}
+              {saving ? tr('关闭') : tr('取消')}
             </button>
             <button
               type="button"
@@ -4991,7 +5115,7 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
               onClick={submit}
             >
               {saving && <Spinner />}
-              {saving ? (mode === 'install' ? '连接中…' : '保存中…') : submitLabel}
+              {saving ? (mode === 'install' ? tr('连接中…') : tr('保存中…')) : submitLabel}
             </button>
           </span>
         </div>
@@ -5043,27 +5167,28 @@ function OAuthAppDialog({ card, saving, error, onClose, onSubmit }: OAuthAppDial
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="dshc-dialog dshc-dialog-credential" role="dialog" aria-modal="true" aria-label={`配置 ${card.name} 应用`}>
+      <div className="dshc-dialog dshc-dialog-credential" role="dialog" aria-modal="true" aria-label={tr("配置 {v0} 应用", { v0: card.name })}>
         <div className="dshc-dialog-head">
           <span className="dshc-dialog-avatar"><ConnectorLogo card={card} size={28} /></span>
           <div className="dshc-dialog-title">
-            <h2>配置 OAuth 应用</h2>
+            <h2>{tr("配置 OAuth 应用")}</h2>
             <span>{card.name}</span>
           </div>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
         <div className="dshc-dialog-content">
           <p className="dshc-dialog-hint">
-            在{card.vendor ?? card.name}开放平台创建应用，把回调地址填到应用的安全设置里，再填入应用凭据；凭据只保存在本机。
+            
+            {tr("在")}{card.vendor ?? card.name}{tr("开放平台创建应用，把回调地址填到应用的安全设置里，再填入应用凭据；凭据只保存在本机。")}
           </p>
           <div className="dshc-field">
-            <label htmlFor="dshc-oauth-callback">回调地址</label>
+            <label htmlFor="dshc-oauth-callback">{tr("回调地址")}</label>
             <span className="dshc-field-control">
               <input id="dshc-oauth-callback" readOnly value={callback} onFocus={event => event.currentTarget.select()} />
               <button type="button" className="dshc-field-copy" onClick={copyCallback}>
-                {copied ? '已复制' : '复制'}
+                {copied ? tr('已复制') : tr('复制')}
               </button>
             </span>
           </div>
@@ -5081,7 +5206,7 @@ function OAuthAppDialog({ card, saving, error, onClose, onSubmit }: OAuthAppDial
                 data-bwignore="true"
                 spellCheck={false}
                 disabled={saving}
-                placeholder="应用 AppKey / Client ID"
+                placeholder={tr("应用 AppKey / Client ID")}
                 value={clientId}
                 onChange={event => setClientId(event.target.value)}
               />
@@ -5099,7 +5224,7 @@ function OAuthAppDialog({ card, saving, error, onClose, onSubmit }: OAuthAppDial
                 data-1p-ignore="true"
                 data-bwignore="true"
                 disabled={saving}
-                placeholder="应用 SecretKey / Client Secret"
+                placeholder={tr("应用 SecretKey / Client Secret")}
                 value={clientSecret}
                 onChange={event => setClientSecret(event.target.value)}
                 onKeyDown={event => {
@@ -5112,8 +5237,8 @@ function OAuthAppDialog({ card, saving, error, onClose, onSubmit }: OAuthAppDial
               <button
                 type="button"
                 className="dshc-field-reveal"
-                aria-label={secretVisible ? '隐藏 SecretKey' : '显示 SecretKey'}
-                title={secretVisible ? '隐藏 SecretKey' : '显示 SecretKey'}
+                aria-label={secretVisible ? tr('隐藏 SecretKey') : tr('显示 SecretKey')}
+                title={secretVisible ? tr('隐藏 SecretKey') : tr('显示 SecretKey')}
                 aria-pressed={secretVisible}
                 disabled={saving}
                 onMouseDown={event => event.preventDefault()}
@@ -5130,12 +5255,12 @@ function OAuthAppDialog({ card, saving, error, onClose, onSubmit }: OAuthAppDial
             </p>
           )}
           {error !== null && <p className="dshc-dialog-error">{error}</p>}
-          {saving && <p className="dshc-dialog-hint">保存后会打开浏览器完成授权。</p>}
+          {saving && <p className="dshc-dialog-hint">{tr("保存后会打开浏览器完成授权。")}</p>}
         </div>
         <div className="dshc-dialog-actions">
           <span className="dshc-dialog-actions-right">
             <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-              {saving ? '关闭' : '取消'}
+              {saving ? tr('关闭') : tr('取消')}
             </button>
             <button
               type="button"
@@ -5144,7 +5269,7 @@ function OAuthAppDialog({ card, saving, error, onClose, onSubmit }: OAuthAppDial
               onClick={submit}
             >
               {saving && <Spinner />}
-              {saving ? '保存中…' : '保存并授权'}
+              {saving ? tr('保存中…') : tr('保存并授权')}
             </button>
           </span>
         </div>
@@ -5167,7 +5292,7 @@ interface CustomDialogProps {
 }
 
 function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, onEdited }: CustomDialogProps): JSX.Element {
-  const [json, setJson] = useState(editing?.initial.json ?? MCP_SERVERS_PLACEHOLDER)
+  const [json, setJson] = useState(editing?.initial.json ?? (currentLocale().toLowerCase().startsWith('en') ? MCP_SERVERS_PLACEHOLDER_EN : MCP_SERVERS_PLACEHOLDER))
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
   const [examples, setExamples] = useState('')
@@ -5359,7 +5484,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
         className="dshc-dialog dshc-dialog-wide"
         role="dialog"
         aria-modal="true"
-        aria-label={editing === undefined ? '自定义连接器' : '编辑连接器配置'}
+        aria-label={editing === undefined ? tr('自定义连接器') : tr('编辑连接器配置')}
         onSubmit={event => {
           event.preventDefault()
           if (pending || json.trim() === '' || (privateWarning && !privateConfirmed)) return
@@ -5372,12 +5497,12 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
       >
         <div className="dshc-dialog-head">
           <div className="dshc-dialog-head-title">
-            <h2>{editing === undefined ? '自定义连接器' : '编辑配置'}</h2>
+            <h2>{editing === undefined ? tr('自定义连接器') : tr('编辑配置')}</h2>
             {editing === undefined && (
               <button
                 type="button"
                 className="dshc-help-btn"
-                aria-label="自定义连接器说明"
+                aria-label={tr("自定义连接器说明")}
                 onMouseEnter={event => showHelpTip(event.currentTarget, 'import')}
                 onMouseLeave={hideHelpTipSoon}
                 onFocus={event => showHelpTip(event.currentTarget, 'import')}
@@ -5387,14 +5512,15 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
               </button>
             )}
           </div>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" disabled={pending} onClick={onClose}>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} disabled={pending} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
         <div className="dshc-dialog-content">
           {editing?.initial.installed === true && (
             <p className="dshc-dialog-hint">
-              当前已安装；如修改地址、命令、请求头或环境变量，保存后会断开连接，需要重新安装。
+              
+              {tr("当前已安装；如修改地址、命令、请求头或环境变量，保存后会断开连接，需要重新安装。")}
             </p>
           )}
           <div className="dshc-field">
@@ -5403,7 +5529,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
               <button
                 type="button"
                 className="dshc-help-btn"
-                aria-label="x-dsh 说明"
+                aria-label={tr("x-dsh 说明")}
                 onMouseEnter={event => showHelpTip(event.currentTarget, 'x-dsh')}
                 onMouseLeave={hideHelpTipSoon}
                 onFocus={event => showHelpTip(event.currentTarget, 'x-dsh')}
@@ -5424,34 +5550,35 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
           </div>
           {editing !== undefined && (
             <p className="dshc-dialog-hint">
-              修改会保存到本机；密钥与 URL 查询参数不会回显，保持 {CUSTOM_SECRET_PLACEHOLDER} 会沿用原值。
+              
+              {tr("修改会保存到本机；密钥与 URL 查询参数不会回显，保持")} {CUSTOM_SECRET_PLACEHOLDER}  {tr("会沿用原值。")}
             </p>
           )}
           {hasJsonMeta && (
-            <p className="dshc-dialog-hint">已读取 JSON 中的 x-dsh；下方留空就使用它，填写会覆盖。</p>
+            <p className="dshc-dialog-hint">{tr("已读取 JSON 中的 x-dsh；下方留空就使用它，填写会覆盖。")}</p>
           )}
           <label className="dshc-field">
-            <span>描述（可选）</span>
+            <span>{tr("描述（可选）")}</span>
             <input
               autoComplete="off"
               maxLength={120}
               placeholder={previewMeta?.description === undefined
-                ? '例如：通过 DeepWiki 查询仓库结构与文档'
-                : `JSON 中：${previewMeta.description}`}
+                ? tr('例如：通过 DeepWiki 查询仓库结构与文档')
+                : tr("JSON 中：{v0}", { v0: previewMeta.description })}
               value={description}
               onChange={event => setDescription(event.target.value)}
             />
           </label>
           <div className="dshc-field">
             <span className="dshc-field-label">
-              <span>类别（可选）</span>
+              <span>{tr("类别（可选）")}</span>
             </span>
             <div className="dshc-select" ref={categoryRef}>
               <div className="dshc-select-control">
                 <input
                   ref={categoryInputRef}
                   autoComplete="off"
-                  placeholder={previewMeta?.category === undefined ? '默认：其他' : `JSON 中：${previewMeta.category}`}
+                  placeholder={previewMeta?.category === undefined ? tr('默认：其他') : tr("JSON 中：{v0}", { v0: previewMeta.category })}
                   value={category}
                   aria-expanded={categoryOpen}
                   onFocus={openCategoryMenu}
@@ -5469,7 +5596,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
                 <button
                   type="button"
                   className="dshc-select-toggle"
-                  aria-label="选择类别"
+                  aria-label={tr("选择类别")}
                   onMouseDown={event => event.preventDefault()}
                   onClick={() => {
                     if (categoryOpen) setCategoryOpen(false)
@@ -5482,31 +5609,33 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
             </div>
             <p className="dshc-dialog-hint">
               {previewMeta?.category === undefined
-                ? '留空会归入「其他」；可直接输入新类别。'
-                : '留空使用 JSON 中的类别；填写会覆盖。'}
+                ? tr('留空会归入「其他」；可直接输入新类别。')
+                : tr('留空使用 JSON 中的类别；填写会覆盖。')}
             </p>
           </div>
           <label className="dshc-field">
-            <span>示例提示词（可选，每行一条）</span>
+            <span>{tr("示例提示词（可选，每行一条）")}</span>
             <textarea
               className="dshc-examples-input"
               spellCheck={false}
               placeholder={previewMeta?.examples === undefined
-                ? '用 DeepWiki 查一下 facebook/react 的仓库结构'
-                : `JSON 中：\n${previewMeta.examples.join('\n')}`}
+                ? tr('用 DeepWiki 查一下 facebook/react 的仓库结构')
+                : tr("JSON 中：\n{v0}", { v0: previewMeta.examples.join('\n') })}
               value={examples}
               onChange={event => setExamples(event.target.value)}
             />
           </label>
           {editing === undefined && serverCount > 1 && (
             <p className="dshc-warning">
-              检测到 {serverCount} 个 Server；多 Server 请用「仅导入」，导入后分别连接。
-              填写下方描述、类别、示例会覆盖所有 Server；留空则各 Server 使用自己的 x-dsh。
+              
+              {tr("检测到")} {serverCount}  {tr("个 Server；多 Server 请用「仅导入」，导入后分别连接。")}
+              {tr("填写下方描述、类别、示例会覆盖所有 Server；留空则各 Server 使用自己的 x-dsh。")}
             </p>
           )}
           {editing !== undefined && json.trim() !== '' && serverCount !== 1 && (
             <p className="dshc-warning">
-              编辑时只能保留一个 Server，当前检测到 {serverCount} 个。
+              
+              {tr("编辑时只能保留一个 Server，当前检测到")} {serverCount}  {tr("个。")}
             </p>
           )}
           {privateWarning && (
@@ -5518,7 +5647,8 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
                   checked={privateConfirmed}
                   onChange={event => setPrivateConfirmed(event.target.checked)}
                 />
-                我确认允许访问本机或内网地址
+                
+                {tr("我确认允许访问本机或内网地址")}
               </label>
             </>
           )}
@@ -5528,7 +5658,8 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
         )}
         <div className="dshc-dialog-actions">
           <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={pending} onClick={onClose}>
-            取消
+            
+            {tr("取消")}
           </button>
           {editing === undefined ? (
             <>
@@ -5538,14 +5669,14 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
                 disabled={pending || json.trim() === '' || (privateWarning && !privateConfirmed)}
                 onClick={() => submit(false)}
               >
-                {privateWarning ? '仍然仅导入' : '仅导入'}
+                {privateWarning ? tr('仍然仅导入') : tr('仅导入')}
               </button>
               <button
                 type="submit"
                 className="dshc-btn dshc-btn-md dshc-btn-primary"
                 disabled={pending || json.trim() === '' || serverCount !== 1 || (privateWarning && !privateConfirmed)}
               >
-                {pending ? '导入中…' : privateWarning ? '仍然导入并连接' : '导入并连接'}
+                {pending ? tr('导入中…') : privateWarning ? tr('仍然导入并连接') : tr('导入并连接')}
               </button>
             </>
           ) : (
@@ -5555,7 +5686,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
               disabled={pending || json.trim() === '' || serverCount !== 1 || (privateWarning && !privateConfirmed)}
             >
               {pending && <Spinner />}
-              {pending ? '保存中…' : '保存'}
+              {pending ? tr('保存中…') : tr('保存')}
             </button>
           )}
         </div>
@@ -5581,7 +5712,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
                 setCategoryOpen(false)
               }}
             >
-              {item}
+              {tr(item)}
             </button>
           ))}
         </div>,
@@ -5607,14 +5738,14 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
         >
           {helpTip.kind === 'import' ? (
             <>
-              <strong>自定义连接器</strong>
-              <span>粘贴 mcpServers JSON，支持 Streamable HTTP、SSE 与 stdio 三类 MCP Server。</span>
+              <strong>{tr("自定义连接器")}</strong>
+              <span>{tr("粘贴 mcpServers JSON，支持 Streamable HTTP、SSE 与 stdio 三类 MCP Server。")}</span>
             </>
           ) : (
             <>
-              <strong>可选扩展：x-dsh</strong>
-              <span>可在每个 server 配置里指定描述、类别与示例，优先于下方表单：</span>
-              <code>{`"x-dsh": {
+              <strong>{tr("可选扩展：x-dsh")}</strong>
+              <span>{tr("可在每个 server 配置里指定描述、类别与示例，优先于下方表单：")}</span>
+              <code>{currentLocale().toLowerCase().startsWith('en') ? X_DSH_SAMPLE_EN : `"x-dsh": {
   "description": "查询仓库结构与文档",
   "category": "知识检索",
   "examples": ["用 DeepWiki 查 facebook/react 的仓库结构"]
@@ -5652,20 +5783,21 @@ function DeleteCustomDialog({ card, pending, error, onClose, onConfirm }: Delete
         if (event.target === event.currentTarget && !pending) onClose()
       }}
     >
-      <div className="dshc-dialog" role="dialog" aria-modal="true" aria-label={`删除 ${card.name}`}>
+      <div className="dshc-dialog" role="dialog" aria-modal="true" aria-label={tr("删除 {v0}", { v0: card.name })}>
         <div className="dshc-dialog-head">
-          <h2>删除 {card.name}</h2>
-          <button type="button" className="dshc-icon-btn" aria-label="关闭" disabled={pending} onClick={onClose}>
+          <h2>{tr("删除")} {card.name}</h2>
+          <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} disabled={pending} onClick={onClose}>
             <IconClose size={16} />
           </button>
         </div>
         <div className="dshc-dialog-content">
-          <p className="dshc-dialog-body">这个自定义连接器会从本机移除，已保存的配置与凭据会一起删除，已连接的工具会注销。</p>
+          <p className="dshc-dialog-body">{tr("这个自定义连接器会从本机移除，已保存的配置与凭据会一起删除，已连接的工具会注销。")}</p>
           {error !== null && <p className="dshc-dialog-error">{error}</p>}
         </div>
         <div className="dshc-dialog-actions">
           <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={pending} onClick={onClose}>
-            取消
+            
+            {tr("取消")}
           </button>
           <button
             type="button"
@@ -5673,7 +5805,7 @@ function DeleteCustomDialog({ card, pending, error, onClose, onConfirm }: Delete
             disabled={pending}
             onClick={onConfirm}
           >
-            {pending ? '删除中…' : '删除'}
+            {pending ? tr('删除中…') : tr('删除')}
           </button>
         </div>
       </div>

@@ -37,5 +37,17 @@
       "label": "查看 Neon MCP 说明",
       "hint": "在浏览器里登录 Neon 完成授权；令牌只保存在本机。"
     }
+  },
+  "translations": {
+    "en": {
+      "summary": "Manage Neon projects, branches, and SQL.",
+      "description": "Official Neon MCP service for projects, branches, SQL queries, schema, and monitoring. Paste a Neon API key during installation; the token stays on this machine.",
+      "examples": [
+        "List my Neon projects with their region and database",
+        "Create a test branch in my-project",
+        "Inspect the users table and the latest 10 rows in my-project",
+        "Check recent slow queries and connection counts in my-project"
+      ]
+    }
   }
 }

@@ -13,7 +13,11 @@
     "查 Microsoft 365 开发相关的官方文档",
     "对比 Azure 上两种消息服务的官方说明"
   ],
-  "tags": ["文档", "Microsoft", "学习"],
+  "tags": [
+    "文档",
+    "Microsoft",
+    "学习"
+  ],
   "order": 62,
   "server": {
     "serverName": "microsoft-learn",
@@ -22,5 +26,17 @@
   },
   "auth": {
     "type": "none"
+  },
+  "translations": {
+    "en": {
+      "summary": "Search official Microsoft Learn docs, tutorials, and code samples. No credentials required.",
+      "description": "Official Microsoft Learn MCP service for Azure, .NET, Microsoft 365, and related docs, tutorials, and samples.",
+      "examples": [
+        "Find how to deploy Azure Functions with Node.js on Microsoft Learn",
+        "Look up the official .NET Minimal API example and routing syntax",
+        "Find official Microsoft 365 development docs",
+        "Compare the official docs for two Azure messaging services"
+      ]
+    }
   }
 }

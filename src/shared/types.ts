@@ -54,6 +54,7 @@ export interface ConnectorCard {
   summary: string
   description?: string
   examples?: string[]
+  translations?: Record<string, { name?: string; vendor?: string; summary?: string; description?: string; examples?: string[] }>
   tags?: string[]
   published: boolean
   featured?: boolean

@@ -13,7 +13,11 @@
     "找某个配置项的跨仓库引用",
     "总结一个仓库的代码结构"
   ],
-  "tags": ["代码搜索", "仓库", "引用"],
+  "tags": [
+    "代码搜索",
+    "仓库",
+    "引用"
+  ],
   "order": 72,
   "server": {
     "serverName": "sourcegraph",
@@ -27,6 +31,18 @@
       "url": "https://sourcegraph.com/user/settings/tokens",
       "label": "创建 Sourcegraph Access Token",
       "hint": "令牌只保存在本机。"
+    }
+  },
+  "translations": {
+    "en": {
+      "summary": "Search code, references, and definitions across repositories.",
+      "description": "Official Sourcegraph MCP service for cross-repository code search, reference analysis, and code understanding.",
+      "examples": [
+        "Search the organization for repositories using a function",
+        "Find where an API is called across repositories",
+        "Find cross-repository references to a configuration key",
+        "Summarize a repository's code structure"
+      ]
     }
   }
 }

@@ -37,5 +37,17 @@
       "label": "查看 Tavily MCP 说明",
       "hint": "授权时在浏览器登录 Tavily；额度按账号套餐计，令牌只保存在本机。"
     }
+  },
+  "translations": {
+    "en": {
+      "summary": "Real-time web search, page extraction, and multi-source research.",
+      "description": "Official Tavily MCP service: web search, content extraction, site crawling and mapping, and multi-source research. Sign in to Tavily in the browser; the token stays on this machine.",
+      "examples": [
+        "Search the last week of news about solid-state battery production, rank by credibility, and cite sources",
+        "Extract clean body text from this page without navigation or ads",
+        "Map example.com and list all documentation links",
+        "Research enterprise RAG options and compare cost and results for three approaches"
+      ]
+    }
   }
 }

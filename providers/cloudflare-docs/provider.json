@@ -13,7 +13,11 @@
     "查 R2 的 S3 兼容接口怎么配置",
     "查 Cloudflare Access 的应用接入方式"
   ],
-  "tags": ["文档", "Cloudflare", "边缘计算"],
+  "tags": [
+    "文档",
+    "Cloudflare",
+    "边缘计算"
+  ],
   "order": 70,
   "server": {
     "serverName": "cloudflare-docs",
@@ -22,5 +26,17 @@
   },
   "auth": {
     "type": "none"
+  },
+  "translations": {
+    "en": {
+      "summary": "Search official Cloudflare documentation. No credentials required.",
+      "description": "Official Cloudflare documentation MCP service for Workers, Pages, D1, R2, Access, and related configuration examples.",
+      "examples": [
+        "Look up KV binding usage for Cloudflare Workers",
+        "Find the D1 migration command",
+        "See how to configure the S3-compatible R2 API",
+        "Check how to connect an app through Cloudflare Access"
+      ]
+    }
   }
 }

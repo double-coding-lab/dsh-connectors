@@ -47,6 +47,40 @@
         "minLength": 1
       }
     },
+    "translations": {
+      "type": "object",
+      "description": "按语言提供的可选文案（例如 en）。缺失字段回退到顶层 summary/description/examples。",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "vendor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "examples": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "tags": {
       "type": "array",
       "items": {

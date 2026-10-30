@@ -13,7 +13,10 @@
     "给合并请求 !123 添加一条评论，说明本地测试结果",
     "查看当前项目的流水线状态，失败时给出原因"
   ],
-  "tags": ["代码托管", "合并请求"],
+  "tags": [
+    "代码托管",
+    "合并请求"
+  ],
   "featured": true,
   "order": 50,
   "server": {
@@ -25,7 +28,21 @@
     "type": "oauth2",
     "flow": "pkce",
     "registration": "dcr",
-    "scopes": ["mcp"],
+    "scopes": [
+      "mcp"
+    ],
     "clientName": "DSH 连接器"
+  },
+  "translations": {
+    "en": {
+      "summary": "Connect through the official GitLab.com MCP and authorize once for projects, issues, and merge requests.",
+      "description": "Official GitLab.com MCP service for projects, issues, merge requests, wikis, and CI. Click install and finish GitLab authorization in the browser; the token stays on this machine.",
+      "examples": [
+        "Show open merge requests in group/project, sorted by update time",
+        "Summarize recent issues and assignees in group/project",
+        "Comment on merge request !123 with the local test results",
+        "Check the current project's pipeline status and explain failures"
+      ]
+    }
   }
 }

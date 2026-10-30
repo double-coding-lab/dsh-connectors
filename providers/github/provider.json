@@ -13,7 +13,11 @@
     "把当前工作区的改动整理成提交说明，并推送到 GitHub",
     "给 owner/repo 的 #123 补充一条评论，说明测试结果"
   ],
-  "tags": ["代码托管", "Issue", "Pull Request"],
+  "tags": [
+    "代码托管",
+    "Issue",
+    "Pull Request"
+  ],
   "featured": true,
   "order": 10,
   "server": {
@@ -28,6 +32,18 @@
       "url": "https://github.com/settings/tokens/new?scopes=repo,read:org,read:user&description=DSH%20Connectors",
       "label": "创建 GitHub PAT",
       "hint": "建议勾选 repo、read:org、read:user；令牌只保存在本机。"
+    }
+  },
+  "translations": {
+    "en": {
+      "summary": "Connect through the official GitHub MCP and use a PAT for repositories, issues, and pull requests.",
+      "description": "Official GitHub MCP service with repository, issue, pull request, and code search tools. Paste a GitHub PAT during installation; the token stays on this machine.",
+      "examples": [
+        "Explain what owner/repo does and list its main directories and stack",
+        "Show recent open PRs in owner/repo, sorted by update time, and summarize changes",
+        "Turn the current workspace changes into a commit message and push to GitHub",
+        "Add a comment to owner/repo#123 with the test results"
+      ]
     }
   }
 }

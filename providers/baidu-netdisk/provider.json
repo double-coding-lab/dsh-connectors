@@ -32,5 +32,19 @@
       "label": "打开百度网盘官方授权链接",
       "hint": "登录并同意授权后，从浏览器地址栏复制 access_token 参数；令牌只保存在本机。"
     }
+  },
+  "translations": {
+    "en": {
+      "summary": "Give agents file listing, search, organization, and sharing for Baidu Netdisk.",
+      "description": "Official Baidu Netdisk MCP service (SSE): file and document/image/video listings, file details, keyword and semantic search, create/copy/move/rename/delete, share links, capacity, and account info. Connect with the official personal token: open the authorization link and paste the access token into the card. No app or callback setup. SSE mode does not include local uploads.",
+      "examples": [
+        "Show files changed recently in my Netdisk root, grouped by type",
+        "Create a folder 2026 Q4 under /Docs and move the related documents into it",
+        "Semantic search: find PDFs related to last quarter's earnings report",
+        "Create a 7-day share link for the proposal under /Deliverables"
+      ],
+      "name": "Baidu Netdisk",
+      "vendor": "Baidu"
+    }
   }
 }

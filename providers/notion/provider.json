@@ -13,7 +13,11 @@
     "查最近更新的会议纪要",
     "把一段需求整理成 Notion 页面草稿"
   ],
-  "tags": ["知识库", "文档", "数据库"],
+  "tags": [
+    "知识库",
+    "文档",
+    "数据库"
+  ],
   "order": 90,
   "server": {
     "serverName": "notion",
@@ -25,5 +29,17 @@
     "flow": "pkce",
     "registration": "dcr",
     "clientName": "DSH 连接器"
+  },
+  "translations": {
+    "en": {
+      "summary": "Search Notion pages, databases, and knowledge bases.",
+      "description": "Official Notion MCP service for searching pages, querying databases, and organizing knowledge base content.",
+      "examples": [
+        "Search the knowledge base for pages about the release process",
+        "Summarize project status in a database",
+        "Find recently updated meeting notes",
+        "Turn this requirement into a Notion page draft"
+      ]
+    }
   }
 }

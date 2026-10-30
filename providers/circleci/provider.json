@@ -13,7 +13,11 @@
     "查看项目的最新构建",
     "对比两次构建的耗时"
   ],
-  "tags": ["CI/CD", "流水线", "构建"],
+  "tags": [
+    "CI/CD",
+    "流水线",
+    "构建"
+  ],
   "order": 73,
   "server": {
     "serverName": "circleci",
@@ -25,5 +29,17 @@
     "flow": "pkce",
     "registration": "dcr",
     "clientName": "DSH 连接器"
+  },
+  "translations": {
+    "en": {
+      "summary": "Inspect CircleCI pipelines, workflows, and build results.",
+      "description": "Official CircleCI MCP service for pipelines, workflows, build status, and failure reasons.",
+      "examples": [
+        "Show recently failed pipelines",
+        "Summarize the failed steps in a workflow",
+        "View the latest build for a project",
+        "Compare the duration of two builds"
+      ]
+    }
   }
 }

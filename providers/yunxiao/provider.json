@@ -13,7 +13,11 @@
     "查一个代码库最近的合并请求",
     "总结一个迭代里未完成的任务"
   ],
-  "tags": ["DevOps", "流水线", "工作项"],
+  "tags": [
+    "DevOps",
+    "流水线",
+    "工作项"
+  ],
   "order": 74,
   "server": {
     "serverName": "yunxiao",
@@ -24,7 +28,23 @@
     "type": "oauth2",
     "flow": "pkce",
     "registration": "dcr",
-    "scopes": ["mcp"],
+    "scopes": [
+      "mcp"
+    ],
     "clientName": "DSH 连接器"
+  },
+  "translations": {
+    "en": {
+      "summary": "Query Yunxiao projects, repositories, pipelines, and work items.",
+      "description": "Official Alibaba Cloud Yunxiao MCP service (public cloud) with OAuth support for projects, repositories, pipelines, and work items. Use a custom connector for dedicated-cloud instances.",
+      "examples": [
+        "Show recent pipeline runs in the current project",
+        "List my work items and due dates",
+        "Show recent merge requests in a repository",
+        "Summarize unfinished tasks in a sprint"
+      ],
+      "name": "Yunxiao DevOps",
+      "vendor": "Alibaba Cloud"
+    }
   }
 }

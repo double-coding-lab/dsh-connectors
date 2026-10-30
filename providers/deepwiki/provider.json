@@ -13,7 +13,10 @@
     "解释 owner/repo 的核心数据流",
     "查一下 owner/repo 的测试与构建方式"
   ],
-  "tags": ["代码文档", "仓库结构"],
+  "tags": [
+    "代码文档",
+    "仓库结构"
+  ],
   "order": 63,
   "server": {
     "serverName": "deepwiki",
@@ -22,5 +25,17 @@
   },
   "auth": {
     "type": "none"
+  },
+  "translations": {
+    "en": {
+      "summary": "Explore GitHub repository structure, docs, and code explanations. No credentials required.",
+      "description": "DeepWiki generates structured documentation and Q&A for public GitHub repositories, useful for understanding structure, modules, and core flows.",
+      "examples": [
+        "Use DeepWiki to inspect the facebook/react repository structure",
+        "Summarize the module layout and main entry points of owner/repo",
+        "Explain the core data flow in owner/repo",
+        "Check how owner/repo is tested and built"
+      ]
+    }
   }
 }

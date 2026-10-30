@@ -13,7 +13,10 @@
     "给合并请求 !123 添加一条评论，说明本地测试结果",
     "查看当前项目的流水线状态，失败时给出原因"
   ],
-  "tags": ["代码托管", "自建实例"],
+  "tags": [
+    "代码托管",
+    "自建实例"
+  ],
   "order": 55,
   "instance": {
     "label": "GitLab MCP 地址",
@@ -33,7 +36,22 @@
     "type": "oauth2",
     "flow": "pkce",
     "registration": "dcr",
-    "scopes": ["mcp"],
+    "scopes": [
+      "mcp"
+    ],
     "clientName": "DSH 连接器"
+  },
+  "translations": {
+    "en": {
+      "summary": "Enter the MCP URL of a self-hosted GitLab and connect with OAuth.",
+      "description": "Official MCP service for a self-hosted GitLab instance. Enter the full MCP endpoint; the instance must support OAuth dynamic client registration. Click install and finish authorization in the browser; the token stays on this machine.",
+      "examples": [
+        "Show open merge requests in group/project, sorted by update time",
+        "Summarize recent issues and assignees in group/project",
+        "Comment on merge request !123 with the local test results",
+        "Check the current project's pipeline status and explain failures"
+      ],
+      "name": "Self-hosted GitLab"
+    }
   }
 }

@@ -150,6 +150,10 @@ UI 会在授权表单里展示该链接与提示。链接必须是厂商官方�
 - `examples`：1–6 条可直接发给 Agent 的提示词；不要写「点这里」这类操作说明。
 - `category`：只能是 `开发工具 / 项目管理 / 数据库 / 知识检索 / 办公协作 / 安全运维 / 数据分析 / 其他`。
 
+## 本地化文案
+
+顶层 `summary` / `description` / `examples` 是中文默认值。需要英文时加 `translations.en`，可覆盖 `name`、`vendor`、`summary`、`description`、`examples`；缺失字段回退到顶层值。`category` 仍是固定中文枚举，界面会按当前语言显示标签。
+
 ## 验证清单
 
 - [ ] `npm run check` 通过

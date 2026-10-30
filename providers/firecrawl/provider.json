@@ -36,5 +36,17 @@
       "label": "查看 Firecrawl MCP 说明",
       "hint": "授权时在浏览器登录 Firecrawl 并选择团队；额度按账号套餐计，令牌只保存在本机。"
     }
+  },
+  "translations": {
+    "en": {
+      "summary": "Scrape pages, crawl sites, and extract structured data as Markdown or JSON for agents.",
+      "description": "Official Firecrawl MCP service: page scraping, site crawling and mapping, web search, structured extraction, and scheduled monitoring. Sign in to Firecrawl in the browser and choose a team; the token stays on this machine.",
+      "examples": [
+        "Scrape this product page to Markdown, keeping the title and price table",
+        "Crawl the first 20 pages of docs.example.com and produce a knowledge summary",
+        "Search for solid-state battery production progress and compare the top 5 results",
+        "Extract title, location, and salary from job pages using this JSON schema"
+      ]
+    }
   }
 }

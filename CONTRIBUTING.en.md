@@ -150,6 +150,10 @@ The authorization form shows this link and hint. Link to the vendor's official c
 - `examples`: 1–6 prompts the user can send to the agent. Do not write operational instructions such as "click here".
 - `category`: one of the fixed identifiers `开发工具 / 项目管理 / 数据库 / 知识检索 / 办公协作 / 安全运维 / 数据分析 / 其他` (developer tools, project management, databases, search & knowledge, productivity, security & ops, analytics, other).
 
+## Localized copy
+
+Top-level `summary`, `description`, and `examples` are the Chinese defaults. Add `translations.en` to override `name`, `vendor`, `summary`, `description`, or `examples`; missing fields fall back to the top-level values. `category` stays a fixed Chinese enum, and the client localizes its label.
+
 ## Verification checklist
 
 - [ ] `npm run check` passes

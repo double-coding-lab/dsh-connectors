@@ -13,7 +13,11 @@
     "看这家公司近三年的司法涉诉和被执行记录",
     "对比两家同行的注册资本、参保人数和专利数量"
   ],
-  "tags": ["企业查询", "工商", "司法风险"],
+  "tags": [
+    "企业查询",
+    "工商",
+    "司法风险"
+  ],
   "order": 83,
   "server": {
     "serverName": "tianyancha",
@@ -24,11 +28,26 @@
     "type": "oauth2",
     "flow": "pkce",
     "registration": "dcr",
-    "scopes": ["mcp:tools.call"],
+    "scopes": [
+      "mcp:tools.call"
+    ],
     "help": {
       "url": "https://ai.tianyancha.com/guide",
       "label": "查看天眼查 MCP 接入说明",
       "hint": "授权使用你开放平台账号的额度，按接口计费；需先在开放平台开通用量。"
+    }
+  },
+  "translations": {
+    "en": {
+      "summary": "Look up company registration, equity, litigation, and IP data.",
+      "description": "Official Tianyancha MCP service: query registration, shareholders and equity penetration, litigation, IP, operations, and bidding by company name or unified social credit code.",
+      "examples": [
+        "Look up the registration and main shareholders of Example Technology Ltd.",
+        "Turn this company's investments and equity chain into a table",
+        "Show litigation and enforcement records from the last three years",
+        "Compare registered capital, insured headcount, and patents for two peers"
+      ],
+      "name": "Tianyancha"
     }
   }
 }

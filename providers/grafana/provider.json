@@ -13,7 +13,11 @@
     "查 Prometheus 数据源的健康状态",
     "总结一个仪表盘的关键指标"
   ],
-  "tags": ["监控", "仪表盘", "告警"],
+  "tags": [
+    "监控",
+    "仪表盘",
+    "告警"
+  ],
   "order": 81,
   "server": {
     "serverName": "grafana",
@@ -27,6 +31,18 @@
       "url": "https://grafana.com/docs/grafana/latest/administration/service-accounts/",
       "label": "创建 Grafana 服务账号令牌",
       "hint": "需要在对应的 Grafana 实例中创建服务账号；令牌只保存在本机。"
+    }
+  },
+  "translations": {
+    "en": {
+      "summary": "Query Grafana dashboards, data sources, and alerts.",
+      "description": "Official Grafana MCP service for dashboards, data sources, alerts, and key metrics, useful for operations and incident triage.",
+      "examples": [
+        "List the dashboards on this Grafana instance",
+        "Show alerts from the last hour",
+        "Check the health of the Prometheus data source",
+        "Summarize the key metrics on a dashboard"
+      ]
     }
   }
 }
