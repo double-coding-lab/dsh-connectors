@@ -337,6 +337,10 @@ function Spinner({ inline = false }: { inline?: boolean }): JSX.Element {
   )
 }
 
+function CardStatusPill({ text }: { text: string }): JSX.Element {
+  return <span className="dshc-status-pill dshc-card-status-pill">{text}</span>
+}
+
 function ToolRow({ name, description }: { name: string; description?: string }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const [overflow, setOverflow] = useState(false)
@@ -2799,7 +2803,7 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
 
   const actionClass = error !== undefined
     ? 'dshc-card-action dshc-card-action-error'
-    : enabled ? 'dshc-card-action dshc-card-action-connected' : 'dshc-card-action dshc-card-action-disabled'
+    : 'dshc-card-action dshc-card-action-connected'
 
   return (
     <>
@@ -2903,9 +2907,7 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
                   >
                     <IconAlert size={16} />
                   </button>
-                : <span className="dshc-card-installed" title={tr("CLI 已安装")} aria-label={tr("CLI 已安装")}>
-                    <IconCheck size={14} />
-                  </span>)}
+                : <CardStatusPill text={tr('未登录')} />)}
               <span className="dshc-card-more-wrap" ref={menuRef}>
                 <button
                   type="button"
@@ -3015,9 +3017,11 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
                     >
                       <IconAlert size={16} />
                     </button>
-                  : <span className={`${actionClass} dshc-card-status`} title={enabled ? tr('已启用') : tr('已停用')} aria-hidden>
-                      <IconCheck size={16} />
-                    </span>}
+                  : !enabled
+                    ? <CardStatusPill text={tr('已停用')} />
+                    : <span className={`${actionClass} dshc-card-status`} title={tr('已启用')} aria-hidden>
+                        <IconCheck size={16} />
+                      </span>}
               <span className="dshc-card-controls">
                 <span className="dshc-card-more-wrap" ref={menuRef}>
                   <button
@@ -3999,11 +4003,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
 
   const actionClass = error !== undefined
     ? 'dshc-card-action dshc-card-action-error'
-    : connection === undefined
-      ? 'dshc-card-action dshc-card-action-connect'
-      : enabled
-        ? 'dshc-card-action dshc-card-action-connected'
-        : 'dshc-card-action dshc-card-action-disabled'
+    : 'dshc-card-action dshc-card-action-connected'
   const instancePending = card.instance !== undefined
     && connection !== undefined
     && connection.instanceReady !== true
@@ -4194,14 +4194,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
               {(authorizing || connecting) && <Spinner inline />}
               {authorizing ? tr('取消授权') : connecting ? tr('连接中…') : (instancePending ? tr('配置') : tr('授权'))}
             </button>
-            <span
-              className="dshc-card-installed"
-              role="img"
-              aria-label={instancePending ? tr('已安装，待配置') : tr('已安装，待授权')}
-              title={instancePending ? tr('已安装，待配置') : tr('已安装，待授权')}
-            >
-              <IconCheck size={14} />
-            </span>
+            <CardStatusPill text={instancePending ? tr('待配置') : tr('未授权')} />
             <span className="dshc-card-more-wrap" ref={menuRef}>
               <button
                 type="button"
@@ -4228,13 +4221,19 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
           </span>
         ) : (
           <span className="dshc-card-actions">
-            <span className={`${actionClass} dshc-card-status`} title={connecting ? tr('连接中…') : authorizing ? tr('授权中…') : actionText} aria-hidden>
-              {(authorizing || connecting)
-                ? <Spinner />
-                : error !== undefined
-                  ? <IconAlert size={16} />
-                  : <IconCheck size={16} />}
-            </span>
+            {(authorizing || connecting)
+              ? <span className={`${actionClass} dshc-card-status`} title={connecting ? tr('连接中…') : tr('授权中…')} aria-hidden>
+                  <Spinner />
+                </span>
+              : error !== undefined
+                ? <span className={`${actionClass} dshc-card-status`} title={actionText} aria-hidden>
+                    <IconAlert size={16} />
+                  </span>
+                : !enabled
+                  ? <CardStatusPill text={tr('已停用')} />
+                  : <span className={`${actionClass} dshc-card-status`} title={actionText} aria-hidden>
+                      <IconCheck size={16} />
+                    </span>}
             <span className="dshc-card-controls">
               <span className="dshc-card-more-wrap" ref={menuRef}>
                 <button
@@ -6060,7 +6059,6 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-spinner{display:inline-block;width:16px;height:16px;flex:none;transform-origin:50% 50%;animation:dshc-spin .8s linear infinite}
 @keyframes dshc-spin{to{transform:rotate(360deg)}}
 .dshc-card-action-connected{color:var(--dsw-alias-state-success-primary)}
-.dshc-card-action-disabled{color:var(--dsw-alias-label-tertiary)}
 .dshc-card-action-error{color:var(--dsw-alias-state-error-primary)}
 .dshc-card-auth-actions{display:flex;align-items:center;gap:4px;flex:none}
 .dshc-card-auth{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;white-space:nowrap;cursor:pointer}
@@ -6071,8 +6069,8 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-card-auth.dshc-card-auth-progress{cursor:default}
 .dshc-card-auth.dshc-card-auth-progress:hover{background:transparent;color:var(--dsw-alias-label-secondary)}
 .dshc-card-actions-logging-out .dshc-card-controls{display:none}
-.dshc-card-installed{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex:none;border:.5px solid var(--dsw-alias-border-l3);border-radius:50%;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);box-shadow:0 1px 2px color-mix(in srgb,#000 6%,transparent)}
 .dshc-card-actions{display:flex;align-items:center;flex:none}
+.dshc-card-status-pill{flex:none;margin-right:4px}
 .dshc-card-toggle{display:inline-flex;align-items:center;justify-content:center;width:28px;height:16px;flex:none}
 .dshc-card-controls{display:flex;align-items:center;justify-content:flex-end;gap:6px;width:0;opacity:0;overflow:hidden;pointer-events:none;transition:width .26s cubic-bezier(.2,0,0,1),opacity .18s ease}
 .dshc-card-controls>*{flex:none}
