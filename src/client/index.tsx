@@ -1154,7 +1154,9 @@ function ConnectorPopover(): JSX.Element | null {
                       aria-label={connection.enabled ? tr("停用 {v0}", { v0: card.name }) : tr("启用 {v0}", { v0: card.name })}
                       title={connection.enabled ? tr('停用') : tr('启用')}
                       onClick={() => { void toggleDockConnection(card, !connection.enabled) }}
-                    />
+                    >
+                      <span className="dshc-switch-thumb" />
+                    </button>
               )
             : (
                 pending
@@ -1226,7 +1228,9 @@ function ConnectorPopover(): JSX.Element | null {
                       aria-label={enabled ? tr("停用 {v0}", { v0: connector.name }) : tr("启用 {v0}", { v0: connector.name })}
                       title={enabled ? tr('停用') : tr('启用')}
                       onClick={() => { void toggleDockCli(connector, !enabled) }}
-                    />
+                    >
+                      <span className="dshc-switch-thumb" />
+                    </button>
               )
             : (
                 pending
@@ -2808,7 +2812,7 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
   return (
     <>
       <article
-        className={menuOpen ? 'dshc-card dshc-card-menu-open' : 'dshc-card'}
+        className={`${menuOpen ? 'dshc-card dshc-card-menu-open' : 'dshc-card'}${connector.installed ? ' dshc-card-has-corner' : ''}`}
         role="button"
         tabIndex={0}
         aria-label={tr("查看 {v0}{v1}", { v0: connector.name, v1: stateLabel })}
@@ -2827,6 +2831,31 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
           }
         }}
       >
+        {connector.installed && (
+          <span className="dshc-card-corner">
+            {!connector.authenticated
+              ? !busy && error === undefined && <CardStatusPill text={tr('未登录')} />
+              : togglePending
+                ? <span className="dshc-card-toggle" role="status" aria-label={tr("处理中")}>
+                    <Spinner />
+                  </span>
+                : <button
+                    type="button"
+                    role="switch"
+                    className="dshc-switch"
+                    aria-checked={enabled}
+                    aria-label={enabled ? tr("停用 {v0}", { v0: connector.name }) : tr("启用 {v0}", { v0: connector.name })}
+                    title={enabled ? tr('停用') : tr('启用')}
+                    disabled={busy}
+                    onClick={event => {
+                      event.stopPropagation()
+                      onToggle(!enabled)
+                    }}
+                  >
+                    <span className="dshc-switch-thumb" />
+                  </button>}
+          </span>
+        )}
         <div className="dshc-card-top">
           <span className="dshc-avatar"><CliLogo connector={connector} size={22} /></span>
           <div className="dshc-card-title">
@@ -2877,7 +2906,7 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
               </button>
             </span>
           ) : !connector.authenticated ? (
-            <span className="dshc-card-auth-actions">
+            <span className="dshc-card-auth-actions dshc-card-auth-reveal">
               <button
                 type="button"
                 className="dshc-card-auth"
@@ -2891,23 +2920,23 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
                   else onLogin()
                 }}
               >
-                {busy && <Spinner inline />}
+                {busy ? <Spinner inline /> : <IconLink size={13} />}
                 {busy ? busyLabel : tr('登录')}
               </button>
-              {!busy && (error !== undefined
-                ? <button
-                    type="button"
-                    className="dshc-card-action dshc-card-action-error dshc-card-status"
-                    title={tr("查看错误日志")}
-                    aria-label={tr("查看 {v0} 错误日志", { v0: connector.name })}
-                    onClick={event => {
-                      event.stopPropagation()
-                      onOpenError()
-                    }}
-                  >
-                    <IconAlert size={16} />
-                  </button>
-                : <CardStatusPill text={tr('未登录')} />)}
+              {!busy && error !== undefined && (
+                <button
+                  type="button"
+                  className="dshc-card-action dshc-card-action-error dshc-card-status"
+                  title={tr("查看错误日志")}
+                  aria-label={tr("查看 {v0} 错误日志", { v0: connector.name })}
+                  onClick={event => {
+                    event.stopPropagation()
+                    onOpenError()
+                  }}
+                >
+                  <IconAlert size={16} />
+                </button>
+              )}
               <span className="dshc-card-more-wrap" ref={menuRef}>
                 <button
                   type="button"
@@ -3018,7 +3047,7 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
                       <IconAlert size={16} />
                     </button>
                   : !enabled
-                    ? <CardStatusPill text={tr('已停用')} />
+                    ? null
                     : <span className={`${actionClass} dshc-card-status`} title={tr('已启用')} aria-hidden>
                         <IconCheck size={16} />
                       </span>}
@@ -3131,24 +3160,6 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
                     </span>
                   )}
                 </span>
-                {togglePending
-                  ? <span className="dshc-card-toggle" role="status" aria-label={tr("处理中")}>
-                      <Spinner />
-                    </span>
-                  : busy
-                    ? null
-                    : <button
-                        type="button"
-                        role="switch"
-                        aria-checked={enabled}
-                        aria-label={enabled ? tr("停用 {v0}", { v0: connector.name }) : tr("启用 {v0}", { v0: connector.name })}
-                        title={enabled ? tr('停用') : tr('启用')}
-                        className="dshc-switch"
-                        onClick={event => {
-                          event.stopPropagation()
-                          onToggle(!enabled)
-                        }}
-                      />}
               </span>
             </span>
           )}
@@ -3233,15 +3244,16 @@ function CliInstallDialog({ connector, pending, onClose, onConfirm, onCancel }: 
           <span className="dshc-dialog-actions-right">
             {busy ? (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancel}>{tr("取消安装")}</button>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>{tr("关闭")}</button>
+                <button type="button" className="dshc-btn dshc-btn-outline" onClick={onCancel}><IconClose size={14} />{tr("取消安装")}</button>
+                <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}><IconClose size={14} />{tr("关闭")}</button>
               </>
             ) : done ? (
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>{tr("关闭")}</button>
+              <button type="button" className="dshc-btn dshc-btn-primary" onClick={onClose}><IconCheck size={14} />{tr("关闭")}</button>
             ) : (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>{tr("取消")}</button>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onConfirm}>
+                <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}><IconClose size={14} />{tr("取消")}</button>
+                <button type="button" className="dshc-btn dshc-btn-primary" onClick={onConfirm}>
+                  {failed ? <IconRefresh size={14} /> : <IconPlus size={14} />}
                   {failed ? tr('重试') : tr('安装')}
                 </button>
               </>
@@ -3328,7 +3340,8 @@ function CliLoginDialog({ connector, onCancel, onClose }: CliLoginDialogProps): 
               {connector.code !== undefined && (
                 <div className="dshc-cli-code">
                   <code>{connector.code}</code>
-                  <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={() => copy(connector.code ?? '', 'code')}>
+                  <button type="button" className="dshc-btn dshc-btn-outline" onClick={() => copy(connector.code ?? '', 'code')}>
+                    {copied === 'code' ? <IconCheck size={14} /> : <IconCopy size={14} />}
                     {copied === 'code' ? tr('已复制') : copyFailed === 'code' ? tr('复制失败') : tr('复制设备码')}
                   </button>
                 </div>
@@ -3340,40 +3353,41 @@ function CliLoginDialog({ connector, onCancel, onClose }: CliLoginDialogProps): 
           {!success && (
             <button
               type="button"
-              className="dshc-btn dshc-btn-md dshc-btn-ghost"
+              className="dshc-btn dshc-btn-outline"
               onClick={() => {
                 onCancel()
                 onClose()
               }}
             >
-              
+              <IconClose size={14} />
               {tr("取消登录")}
             </button>
           )}
           <span className="dshc-dialog-actions-right">
             {success ? (
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>{tr("完成")}</button>
+              <button type="button" className="dshc-btn dshc-btn-primary" onClick={onClose}><IconCheck size={14} />{tr("完成")}</button>
             ) : (
               <>
                 {link !== undefined && (
                   <button
                     type="button"
-                    className="dshc-btn dshc-btn-md dshc-btn-outline"
+                    className="dshc-btn dshc-btn-outline"
                     onClick={() => copy(link, 'link')}
                   >
+                    {copied === 'link' ? <IconCheck size={14} /> : <IconCopy size={14} />}
                     {copied === 'link' ? tr('已复制') : copyFailed === 'link' ? tr('复制失败') : tr('复制链接')}
                   </button>
                 )}
                 {link !== undefined
                   ? (
-                      <a className="dshc-btn dshc-btn-md dshc-btn-primary" href={link} target="_blank" rel="noreferrer">
-                        
+                      <a className="dshc-btn dshc-btn-primary" href={link} target="_blank" rel="noreferrer">
+                        <IconLink size={14} />
                         {tr("打开授权页面")}
                       </a>
                     )
                   : (
-                      <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                        
+                      <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}>
+                        <IconClose size={14} />
                         {tr("关闭")}
                       </button>
                     )}
@@ -3455,34 +3469,35 @@ function CliUninstallDialog({ connector, running, pending, error, onClose, onCon
             <>
               <button
                 type="button"
-                className="dshc-btn dshc-btn-md dshc-btn-outline dshc-btn-danger"
+                className="dshc-btn dshc-btn-outline"
                 disabled={pending}
                 onClick={onCancel}
               >
                 {pending && <Spinner inline />}
-                
+                {!pending && <IconClose size={14} />}
                 {tr("取消卸载")}
               </button>
               <span className="dshc-dialog-actions-right">
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                  
+                <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}>
+                  <IconClose size={14} />
                   {tr("关闭")}
                 </button>
               </span>
             </>
           ) : (
             <>
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                
+              <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}>
+                <IconClose size={14} />
                 {tr("取消")}
               </button>
               <button
                 type="button"
-                className="dshc-btn dshc-btn-md dshc-btn-outline dshc-btn-danger"
+                className="dshc-btn dshc-btn-primary dshc-btn-danger-solid"
                 disabled={pending}
                 onClick={onConfirm}
               >
                 {pending && <Spinner inline />}
+                {!pending && <IconTrash size={14} />}
                 {pending ? tr('启动中…') : tr('卸载 CLI')}
               </button>
             </>
@@ -3549,7 +3564,8 @@ function CliUpdateDialog({ connector, running, started, error, onClose }: CliUpd
         </div>
         <div className="dshc-dialog-actions">
           <span className="dshc-dialog-actions-right">
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
+            <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}>
+              {running ? <IconClose size={14} /> : <IconCheck size={14} />}
               {running ? tr('后台继续') : tr('完成')}
             </button>
           </span>
@@ -3769,24 +3785,24 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
           {connector.installed && (
             <button
               type="button"
-              className="dshc-btn dshc-btn-md dshc-btn-ghost dshc-btn-danger"
+              className="dshc-btn dshc-btn-danger-outline"
               disabled={busy}
               onClick={onUninstall}
             >
-              
+              <IconTrash size={14} />
               {tr("卸载 CLI")}
             </button>
           )}
           <span className="dshc-dialog-actions-right">
             {!connector.installed ? (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>{tr("关闭")}</button>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onInstall}>{tr("安装")}</button>
+                <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}><IconClose size={14} />{tr("关闭")}</button>
+                <button type="button" className="dshc-btn dshc-btn-primary" disabled={busy} onClick={onInstall}><IconPlus size={14} />{tr("安装")}</button>
               </>
             ) : !connector.authenticated ? (
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onLogin}>{tr("登录")}</button>
+              <button type="button" className="dshc-btn dshc-btn-primary" disabled={busy} onClick={onLogin}><IconLink size={14} />{tr("登录")}</button>
             ) : (
-              <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>{tr("完成")}</button>
+              <button type="button" className="dshc-btn dshc-btn-primary" onClick={onClose}><IconCheck size={14} />{tr("完成")}</button>
             )}
           </span>
         </div>
@@ -3900,7 +3916,7 @@ function CliErrorDialog({ connector, onClose }: CliErrorDialogProps): JSX.Elemen
         <div className="dshc-dialog-actions">
           <button
             type="button"
-            className="dshc-btn dshc-btn-md dshc-btn-ghost"
+            className="dshc-btn dshc-btn-outline"
             disabled={loading || fullText === ''}
             onClick={copy}
           >
@@ -3908,7 +3924,7 @@ function CliErrorDialog({ connector, onClose }: CliErrorDialogProps): JSX.Elemen
             {copied ? tr('已复制') : copyFailed ? tr('复制失败') : tr('复制日志')}
           </button>
           <span className="dshc-dialog-actions-right">
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" onClick={onClose}>{tr("关闭")}</button>
+            <button type="button" className="dshc-btn dshc-btn-primary" onClick={onClose}><IconClose size={14} />{tr("关闭")}</button>
           </span>
         </div>
       </div>
@@ -4098,7 +4114,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
   return (
     <>
       <article
-        className={menuOpen ? 'dshc-card dshc-card-menu-open' : 'dshc-card'}
+        className={`${menuOpen ? 'dshc-card dshc-card-menu-open' : 'dshc-card'}${connection !== undefined ? ' dshc-card-has-corner' : ''}`}
       role="button"
       tabIndex={0}
       aria-label={tr("查看 {v0}{v1}", { v0: card.name, v1: stateLabel })}
@@ -4117,6 +4133,31 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
         }
       }}
     >
+      {connection !== undefined && (
+        <span className="dshc-card-corner">
+          {unauthorized
+            ? <CardStatusPill text={instancePending ? tr('待配置') : tr('未授权')} />
+            : togglePending
+              ? <span className="dshc-card-toggle" role="status" aria-label={tr("处理中")}>
+                  <Spinner />
+                </span>
+              : <button
+                  type="button"
+                  role="switch"
+                  className="dshc-switch"
+                  aria-checked={enabled}
+                  aria-label={enabled ? tr("停用 {v0}", { v0: card.name }) : tr("启用 {v0}", { v0: card.name })}
+                  title={enabled ? tr('停用') : tr('启用')}
+                  disabled={authorizing || connecting}
+                  onClick={event => {
+                    event.stopPropagation()
+                    onToggle(!enabled)
+                  }}
+                >
+                  <span className="dshc-switch-thumb" />
+                </button>}
+        </span>
+      )}
       <div className="dshc-card-top">
         <span className="dshc-avatar"><ConnectorLogo card={card} /></span>
         <div className="dshc-card-title">
@@ -4175,7 +4216,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
             </button>
           </span>
         ) : unauthorized ? (
-          <span className="dshc-card-auth-actions">
+          <span className="dshc-card-auth-actions dshc-card-auth-reveal">
             <button
               type="button"
               className="dshc-card-auth"
@@ -4191,10 +4232,11 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                 else if (!connecting) onAuthorize()
               }}
             >
-              {(authorizing || connecting) && <Spinner inline />}
+              {authorizing || connecting
+                ? <Spinner inline />
+                : instancePending ? <IconServer size={13} /> : <IconLink size={13} />}
               {authorizing ? tr('取消授权') : connecting ? tr('连接中…') : (instancePending ? tr('配置') : tr('授权'))}
             </button>
-            <CardStatusPill text={instancePending ? tr('待配置') : tr('未授权')} />
             <span className="dshc-card-more-wrap" ref={menuRef}>
               <button
                 type="button"
@@ -4230,7 +4272,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                     <IconAlert size={16} />
                   </span>
                 : !enabled
-                  ? <CardStatusPill text={tr('已停用')} />
+                  ? null
                   : <span className={`${actionClass} dshc-card-status`} title={actionText} aria-hidden>
                       <IconCheck size={16} />
                     </span>}
@@ -4317,22 +4359,6 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                   </span>
                 )}
               </span>
-              {togglePending
-                ? <span className="dshc-card-toggle" role="status" aria-label={tr("处理中")}>
-                    <Spinner />
-                  </span>
-                : <button
-                    type="button"
-                    role="switch"
-                    aria-checked={enabled}
-                    aria-label={enabled ? tr("停用 {v0}", { v0: card.name }) : tr("启用 {v0}", { v0: card.name })}
-                    title={enabled ? tr('停用') : tr('启用')}
-                    className="dshc-switch"
-                    onClick={event => {
-                      event.stopPropagation()
-                      onToggle(!enabled)
-                    }}
-                  />}
             </span>
           </span>
         )}
@@ -4426,8 +4452,8 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
   const removeLabel = onDelete === undefined ? tr('删除') : tr('断开')
   const removingLabel = onDelete === undefined ? tr('删除中…') : tr('断开中…')
   const removeClass = onDelete === undefined
-    ? 'dshc-btn dshc-btn-md dshc-btn-outline dshc-btn-danger'
-    : 'dshc-btn dshc-btn-md dshc-btn-outline'
+    ? 'dshc-btn dshc-btn-danger-outline'
+    : 'dshc-btn dshc-btn-outline'
 
   useEffect(() => {
     setCopied(null)
@@ -4511,7 +4537,28 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
             <h2>{card.name}</h2>
             <span>{[card.vendor, card.categoryLabel ?? tr(card.category)].filter(Boolean).join(' · ')}</span>
           </div>
-          <span className={`${statusClass} dshc-dialog-status-pill`}>{statusText}</span>
+          {disabled ? (
+            toggling ? (
+              <span className="dshc-card-toggle" role="status" aria-label={tr("处理中")}>
+                <Spinner />
+              </span>
+            ) : (
+              <button
+                type="button"
+                role="switch"
+                className="dshc-switch"
+                aria-checked={false}
+                aria-label={tr("启用 {v0}", { v0: card.name })}
+                title={tr('启用')}
+                disabled={busy}
+                onClick={() => onToggle(true)}
+              >
+                <span className="dshc-switch-thumb" />
+              </button>
+            )
+          ) : (
+            <span className={`${statusClass} dshc-dialog-status-pill`}>{statusText}</span>
+          )}
           <button type="button" className="dshc-icon-btn" aria-label={tr("关闭")} onClick={onClose}>
             <IconClose size={16} />
           </button>
@@ -4674,37 +4721,37 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
 
         <div className="dshc-dialog-actions">
           {onDelete !== undefined && (
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost dshc-btn-danger" disabled={busy} onClick={onDelete}>
-              
+            <button type="button" className="dshc-btn dshc-btn-danger-outline" disabled={busy} onClick={onDelete}>
+              <IconTrash size={14} />
               {tr("删除")}
             </button>
           )}
           {onEditCustom !== undefined && !authorizing && (
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onEditCustom}>
-              
+            <button type="button" className="dshc-btn dshc-btn-outline" disabled={busy} onClick={onEditCustom}>
+              <IconPencil size={14} />
               {tr("编辑配置")}
             </button>
           )}
           {onReconfigureInstance !== undefined && connection !== undefined && !authorizing && (
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onReconfigureInstance}>
-              
+            <button type="button" className="dshc-btn dshc-btn-outline" disabled={busy} onClick={onReconfigureInstance}>
+              <IconServer size={14} />
               {tr("更换")}{instanceNoun(card)}
             </button>
           )}
           {oauth && connection?.authorized === true && !authorizing && (
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onRevoke}>
-              
+            <button type="button" className="dshc-btn dshc-btn-outline" disabled={busy} onClick={onRevoke}>
+              <IconLink size={14} />
               {tr("取消授权")}
             </button>
           )}
           <span className="dshc-dialog-actions-right">
             {authorizing && connection?.authorized === true && (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancelAuthorize}>
-                  
+                <button type="button" className="dshc-btn dshc-btn-outline" onClick={onCancelAuthorize}>
+                  <IconClose size={14} />
                   {tr("取消授权")}
                 </button>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled>
+                <button type="button" className="dshc-btn dshc-btn-primary" disabled>
                   <Spinner />
                   
                   {tr("授权中…")}
@@ -4714,11 +4761,11 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
             {unauthorized && (
               authorizing ? (
                 <>
-                  <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onCancelAuthorize}>
-                    
+                  <button type="button" className="dshc-btn dshc-btn-outline" onClick={onCancelAuthorize}>
+                    <IconClose size={14} />
                     {tr("取消授权")}
                   </button>
-                  <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled>
+                  <button type="button" className="dshc-btn dshc-btn-primary" disabled>
                     <Spinner />
                     
                     {tr("授权中…")}
@@ -4727,40 +4774,42 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
               ) : (
                 <>
                   <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
+                    {onDelete === undefined && <IconTrash size={14} />}
                     {removeLabel}
                   </button>
                   {needsInstanceConfig ? (
                     <button
                       type="button"
-                      className="dshc-btn dshc-btn-md dshc-btn-primary"
+                      className="dshc-btn dshc-btn-primary"
                       disabled={busy}
                       onClick={onConfigureInstance}
                     >
-                      {pending && <Spinner />}
+                      {pending ? <Spinner /> : <IconServer size={14} />}
                       {pending ? tr('配置中…') : tr('配置')}
                     </button>
                   ) : oauth ? (
-                    <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onAuthorize}>
-                      
+                    <button type="button" className="dshc-btn dshc-btn-primary" disabled={busy} onClick={onAuthorize}>
+                      <IconLink size={14} />
                       {tr("授权")} {card.name}
                     </button>
                   ) : needsToken ? (
                     <button
                       type="button"
-                      className="dshc-btn dshc-btn-md dshc-btn-primary"
+                      className="dshc-btn dshc-btn-primary"
                       disabled={busy}
                       onClick={onUpdateCredential}
                     >
-                      {busy && <Spinner />}
+                      {busy ? <Spinner /> : <IconLink size={14} />}
                       {busy ? tr('连接中…') : tr("授权 {v0}", { v0: card.name })}
                     </button>
                   ) : (
                     <button
                       type="button"
-                      className="dshc-btn dshc-btn-md dshc-btn-primary"
+                      className="dshc-btn dshc-btn-primary"
                       disabled={busy}
                       onClick={() => onConnect(undefined)}
                     >
+                      {pending ? <Spinner /> : <IconPlug size={14} />}
                       {pending ? tr('连接中…') : tr('连接')}
                     </button>
                   )}
@@ -4768,28 +4817,19 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
               )
             )}
             {!authorizing && disabled && (
-              <>
-                <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
-                  {removeLabel}
-                </button>
-                <button
-                  type="button"
-                  className="dshc-btn dshc-btn-md dshc-btn-primary"
-                  disabled={busy}
-                  onClick={() => onToggle(true)}
-                >
-                  {toggling ? tr('启用中…') : tr('启用')}
-                </button>
-              </>
+              <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
+                {onDelete === undefined && <IconTrash size={14} />}
+                {removeLabel}
+              </button>
             )}
             {!authorizing && connected && (
               noneConnecting ? (
                 <>
-                  <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                    
+                  <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}>
+                    <IconClose size={14} />
                     {tr("取消")}
                   </button>
-                  <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled>
+                  <button type="button" className="dshc-btn dshc-btn-primary" disabled>
                     <Spinner />
                     
                     {tr("连接中…")}
@@ -4798,22 +4838,23 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
               ) : (
                 <>
                   <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
+                    {onDelete === undefined && <IconTrash size={14} />}
                     {pending && !connecting ? removingLabel : removeLabel}
                   </button>
                   {oauth && (
-                    <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onReauthorize}>
-                      
+                    <button type="button" className="dshc-btn dshc-btn-outline" disabled={busy} onClick={onReauthorize}>
+                      <IconRefresh size={14} />
                       {tr("重新授权")}
                     </button>
                   )}
                   {needsToken && (
-                    <button type="button" className="dshc-btn dshc-btn-md dshc-btn-ghost" disabled={busy} onClick={onUpdateCredential}>
-                      {pending && <Spinner />}
+                    <button type="button" className="dshc-btn dshc-btn-outline" disabled={busy} onClick={onUpdateCredential}>
+                      {pending ? <Spinner /> : <IconRefresh size={14} />}
                       {pending ? tr('更新中…') : tr('更新令牌')}
                     </button>
                   )}
-                  <button type="button" className="dshc-btn dshc-btn-md dshc-btn-primary" disabled={busy} onClick={onClose}>
-                    {connecting && <Spinner />}
+                  <button type="button" className="dshc-btn dshc-btn-primary" disabled={busy} onClick={onClose}>
+                    {connecting ? <Spinner /> : <IconCheck size={14} />}
                     {connecting ? tr('连接中…') : tr('完成')}
                   </button>
                 </>
@@ -4822,34 +4863,37 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
             {!authorizing && connection !== undefined && connection.authorized && !connected && !disabled && (
               <>
                 <button type="button" className={removeClass} disabled={busy} onClick={onDisconnect}>
+                  {onDelete === undefined && <IconTrash size={14} />}
                   {removeLabel}
                 </button>
                 {oauth ? (
                   <button
                     type="button"
-                    className="dshc-btn dshc-btn-md dshc-btn-primary"
+                    className="dshc-btn dshc-btn-primary"
                     disabled={busy}
                     onClick={onReauthorize}
                   >
+                    {pending ? <Spinner /> : <IconRefresh size={14} />}
                     {pending ? tr('授权中…') : tr('重新授权')}
                   </button>
                 ) : needsToken ? (
                   <button
                     type="button"
-                    className="dshc-btn dshc-btn-md dshc-btn-primary"
+                    className="dshc-btn dshc-btn-primary"
                     disabled={busy}
                     onClick={onUpdateCredential}
                   >
-                    {pending && <Spinner />}
+                    {pending ? <Spinner /> : <IconRefresh size={14} />}
                     {pending ? tr('更新中…') : tr('更新令牌')}
                   </button>
                 ) : (
                   <button
                     type="button"
-                    className="dshc-btn dshc-btn-md dshc-btn-primary"
+                    className="dshc-btn dshc-btn-primary"
                     disabled={busy}
                     onClick={() => onConnect(undefined)}
                   >
+                    {pending ? <Spinner /> : <IconRefresh size={14} />}
                     {pending ? tr('重试中…') : tr('重试')}
                   </button>
                 )}
@@ -4857,18 +4901,18 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
             )}
             {connection === undefined && showingInstall && (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={busy} onClick={onCancelInstall}>
-                  
+                <button type="button" className="dshc-btn dshc-btn-outline" disabled={busy} onClick={onCancelInstall}>
+                  <IconClose size={14} />
                   {tr("取消")}
                 </button>
                 {oauth && (
                   <button
                     type="button"
-                    className="dshc-btn dshc-btn-md dshc-btn-primary"
+                    className="dshc-btn dshc-btn-primary"
                     disabled={busy}
                     onClick={onInstallOAuth}
                   >
-                    {pending && <Spinner />}
+                    {pending ? <Spinner /> : <IconPlus size={14} />}
                     {pending ? tr('安装中…') : tr('安装')}
                   </button>
                 )}
@@ -4876,17 +4920,17 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
             )}
             {connection === undefined && !showingInstall && (
               <>
-                <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
-                  
+                <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}>
+                  <IconClose size={14} />
                   {tr("关闭")}
                 </button>
                 <button
                   type="button"
-                  className="dshc-btn dshc-btn-md dshc-btn-primary"
+                  className="dshc-btn dshc-btn-primary"
                   disabled={busy}
                   onClick={onBeginInstall}
                 >
-                  {pending && <Spinner />}
+                  {pending ? <Spinner /> : <IconPlus size={14} />}
                   {pending ? tr('安装中…') : tr('安装')}
                 </button>
               </>
@@ -5035,15 +5079,16 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
         </div>
         <div className="dshc-dialog-actions">
           <span className="dshc-dialog-actions-right">
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={pending} onClick={onClose}>
+            <button type="button" className="dshc-btn dshc-btn-outline" disabled={pending} onClick={onClose}>
+              <IconClose size={14} />
               {pending ? tr('关闭') : tr('取消')}
             </button>
             <button
               type="submit"
-              className="dshc-btn dshc-btn-md dshc-btn-primary"
+              className="dshc-btn dshc-btn-primary"
               disabled={pending || instanceUrl.trim() === ''}
             >
-              {pending && <Spinner />}
+              {pending ? <Spinner /> : <IconCheck size={14} />}
               {pending ? tr('保存中…') : submitLabel}
             </button>
           </span>
@@ -5161,16 +5206,17 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
         </div>
         <div className="dshc-dialog-actions">
           <span className="dshc-dialog-actions-right">
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
+            <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}>
+              <IconClose size={14} />
               {saving ? tr('关闭') : tr('取消')}
             </button>
             <button
               type="button"
-              className="dshc-btn dshc-btn-md dshc-btn-primary"
+              className="dshc-btn dshc-btn-primary"
               disabled={saving || token.trim() === ''}
               onClick={submit}
             >
-              {saving && <Spinner />}
+              {saving ? <Spinner /> : mode === 'install' ? <IconPlug size={14} /> : <IconCheck size={14} />}
               {saving ? (mode === 'install' ? tr('连接中…') : tr('保存中…')) : submitLabel}
             </button>
           </span>
@@ -5315,16 +5361,17 @@ function OAuthAppDialog({ card, saving, error, onClose, onSubmit }: OAuthAppDial
         </div>
         <div className="dshc-dialog-actions">
           <span className="dshc-dialog-actions-right">
-            <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" onClick={onClose}>
+            <button type="button" className="dshc-btn dshc-btn-outline" onClick={onClose}>
+              <IconClose size={14} />
               {saving ? tr('关闭') : tr('取消')}
             </button>
             <button
               type="button"
-              className="dshc-btn dshc-btn-md dshc-btn-primary"
+              className="dshc-btn dshc-btn-primary"
               disabled={saving || clientId.trim() === '' || clientSecret.trim() === ''}
               onClick={submit}
             >
-              {saving && <Spinner />}
+              {saving ? <Spinner /> : <IconLink size={14} />}
               {saving ? tr('保存中…') : tr('保存并授权')}
             </button>
           </span>
@@ -5806,35 +5853,37 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
           <div className="dshc-dialog-alert" role="alert">{error}</div>
         )}
         <div className="dshc-dialog-actions">
-          <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={pending} onClick={onClose}>
-            
+          <button type="button" className="dshc-btn dshc-btn-outline" disabled={pending} onClick={onClose}>
+            <IconClose size={14} />
             {tr("取消")}
           </button>
           {editing === undefined ? (
             <>
               <button
                 type="button"
-                className="dshc-btn dshc-btn-md dshc-btn-outline"
+                className="dshc-btn dshc-btn-outline"
                 disabled={pending || json.trim() === '' || (privateWarning && !privateConfirmed)}
                 onClick={() => submit(false)}
               >
+                <IconPlus size={14} />
                 {privateWarning ? tr('仍然仅导入') : tr('仅导入')}
               </button>
               <button
                 type="submit"
-                className="dshc-btn dshc-btn-md dshc-btn-primary"
+                className="dshc-btn dshc-btn-primary"
                 disabled={pending || json.trim() === '' || serverCount !== 1 || (privateWarning && !privateConfirmed)}
               >
+                {pending ? <Spinner /> : <IconPlug size={14} />}
                 {pending ? tr('导入中…') : privateWarning ? tr('仍然导入并连接') : tr('导入并连接')}
               </button>
             </>
           ) : (
             <button
               type="submit"
-              className="dshc-btn dshc-btn-md dshc-btn-primary"
+              className="dshc-btn dshc-btn-primary"
               disabled={pending || json.trim() === '' || serverCount !== 1 || (privateWarning && !privateConfirmed)}
             >
-              {pending && <Spinner />}
+              {pending ? <Spinner /> : <IconCheck size={14} />}
               {pending ? tr('保存中…') : tr('保存')}
             </button>
           )}
@@ -5951,16 +6000,17 @@ function DeleteCustomDialog({ card, pending, error, onClose, onConfirm }: Delete
           {error !== null && <p className="dshc-dialog-error">{error}</p>}
         </div>
         <div className="dshc-dialog-actions">
-          <button type="button" className="dshc-btn dshc-btn-md dshc-btn-outline" disabled={pending} onClick={onClose}>
-            
+          <button type="button" className="dshc-btn dshc-btn-outline" disabled={pending} onClick={onClose}>
+            <IconClose size={14} />
             {tr("取消")}
           </button>
           <button
             type="button"
-            className="dshc-btn dshc-btn-md dshc-btn-outline dshc-btn-danger"
+            className="dshc-btn dshc-btn-primary dshc-btn-danger-solid"
             disabled={pending}
             onClick={onConfirm}
           >
+            {pending ? <Spinner inline /> : <IconTrash size={14} />}
             {pending ? tr('删除中…') : tr('删除')}
           </button>
         </div>
@@ -6012,15 +6062,17 @@ function installStyles(): void {
 .dshc-search-clear:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dshc-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:36px;padding:0 14px;border:none;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;white-space:nowrap;text-decoration:none;cursor:pointer}
 .dshc-btn:disabled{opacity:.4;cursor:not-allowed}
-.dshc-btn-md{height:40px}
-.dshc-btn-ghost:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
-.dshc-btn-ghost:active:not(:disabled){background:var(--dsw-alias-interactive-bg-active)}
 .dshc-btn-outline{border:.5px solid var(--dsw-alias-border-l3)}
 .dshc-btn-outline:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .dshc-btn-primary{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}
 .dshc-btn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
+.dshc-btn-sm{height:28px;padding:0 10px;font-size:12px;line-height:18px;border-radius:var(--dsw-radius-sm)}
 .dshc-btn-danger{color:var(--dsw-alias-state-error-primary)}
 .dshc-btn-danger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.dshc-btn-danger-outline{border:.5px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 30%,transparent);color:var(--dsw-alias-state-error-primary)}
+.dshc-btn-danger-outline:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 8%,transparent)}
+.dshc-btn-danger-solid{background:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-primary-foreground)}
+.dshc-btn-danger-solid:hover:not(:disabled){background:var(--dsw-alias-state-error-primary)}
 .dshc-create{height:32px;padding:0 12px;border-radius:var(--dsw-radius-lg);font-size:13px;line-height:20px}
 .dshc-tabs{display:flex;flex-wrap:nowrap;align-items:center;gap:8px 12px;margin-bottom:14px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;padding-bottom:2px;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2) transparent}
 .dshc-tabs::-webkit-scrollbar{height:6px}
@@ -6031,7 +6083,10 @@ function installStyles(): void {
 .dshc-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dshc-tab-active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dshc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
-.dshc-card{box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);cursor:pointer;transition:border-color .15s,background-color .15s}
+.dshc-card{box-sizing:border-box;position:relative;display:flex;flex-direction:column;gap:12px;padding:16px;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);cursor:pointer;transition:border-color .15s,background-color .15s}
+.dshc-card-corner{position:absolute;top:16px;right:16px;z-index:1;pointer-events:none}
+.dshc-card-corner .dshc-switch{pointer-events:auto}
+.dshc-card-has-corner .dshc-card-top{padding-right:64px}
 .dshc-card:hover{border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-2)}
 .dshc-card:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .dshc-card-top{display:flex;align-items:center;gap:12px;min-width:0}
@@ -6061,6 +6116,9 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-card-action-connected{color:var(--dsw-alias-state-success-primary)}
 .dshc-card-action-error{color:var(--dsw-alias-state-error-primary)}
 .dshc-card-auth-actions{display:flex;align-items:center;gap:4px;flex:none}
+.dshc-card-auth-reveal{max-width:0;overflow:hidden;justify-content:flex-end;opacity:0;pointer-events:none;transition:max-width .26s cubic-bezier(.2,0,0,1),opacity .18s ease}
+.dshc-card:hover .dshc-card-auth-reveal,.dshc-card:focus-within .dshc-card-auth-reveal,.dshc-card-menu-open .dshc-card-auth-reveal{max-width:240px;opacity:1;pointer-events:auto}
+@media (hover:none){.dshc-card-auth-reveal{max-width:240px;opacity:1;pointer-events:auto}}
 .dshc-card-auth{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;white-space:nowrap;cursor:pointer}
 .dshc-spinner-inline{width:12px;height:12px}
 .dshc-card-auth:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
@@ -6071,19 +6129,20 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-card-actions-logging-out .dshc-card-controls{display:none}
 .dshc-card-actions{display:flex;align-items:center;flex:none}
 .dshc-card-status-pill{flex:none;margin-right:4px}
-.dshc-card-toggle{display:inline-flex;align-items:center;justify-content:center;width:28px;height:16px;flex:none}
-.dshc-card-controls{display:flex;align-items:center;justify-content:flex-end;gap:6px;width:0;opacity:0;overflow:hidden;pointer-events:none;transition:width .26s cubic-bezier(.2,0,0,1),opacity .18s ease}
+.dshc-card-toggle{display:inline-flex;align-items:center;justify-content:center;width:36px;height:20px;flex:none;color:var(--dsw-alias-label-tertiary)}
+.dshc-card-controls{display:flex;align-items:center;justify-content:flex-end;gap:12px;width:0;opacity:0;overflow:hidden;pointer-events:none;transition:width .26s cubic-bezier(.2,0,0,1),opacity .18s ease}
+.dshc-card-controls::before{content:"";flex:none;width:0}
 .dshc-card-controls>*{flex:none}
-.dshc-card:hover .dshc-card-controls,.dshc-card:focus-within .dshc-card-controls,.dshc-card-menu-open .dshc-card-controls{width:62px;opacity:1;pointer-events:auto}
-.dshc-card-actions-busy .dshc-card-controls{width:28px;opacity:1;pointer-events:auto}
-.dshc-card:hover .dshc-card-actions-busy .dshc-card-controls,.dshc-card:focus-within .dshc-card-actions-busy .dshc-card-controls,.dshc-card-menu-open .dshc-card-actions-busy .dshc-card-controls{width:28px;opacity:1;pointer-events:auto}
+.dshc-card:hover .dshc-card-controls,.dshc-card:focus-within .dshc-card-controls,.dshc-card-menu-open .dshc-card-controls{width:40px;opacity:1;pointer-events:auto}
+.dshc-card-actions-busy .dshc-card-controls{width:40px;opacity:1;pointer-events:auto}
+.dshc-card:hover .dshc-card-actions-busy .dshc-card-controls,.dshc-card:focus-within .dshc-card-actions-busy .dshc-card-controls,.dshc-card-menu-open .dshc-card-actions-busy .dshc-card-controls{width:40px;opacity:1;pointer-events:auto}
 .dshc-card-menu-open .dshc-card-controls{overflow:visible}
-.dshc-switch{position:relative;box-sizing:border-box;width:28px;height:16px;flex:none;margin:0;padding:0;border:0;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 40%,transparent);cursor:pointer;transition:background-color .15s}
-.dshc-switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--dsw-alias-label-primary-foreground);box-shadow:0 1px 2px color-mix(in srgb,#000 25%,transparent);transition:transform .15s}
-.dshc-switch[aria-checked=true]{background:var(--dsw-alias-state-success-primary)}
-.dshc-switch[aria-checked=true]::after{transform:translateX(12px)}
-.dshc-switch:disabled{opacity:.4;cursor:not-allowed}
-.dshc-switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.dshc-switch{position:relative;box-sizing:border-box;width:36px;height:20px;flex:none;margin:0;padding:2px;border:0;border-radius:999px;corner-shape:round;background:var(--dsw-alias-border-l3);cursor:pointer;transition:background-color .12s ease}
+.dshc-switch-thumb{display:block;width:16px;height:16px;border-radius:50%;corner-shape:round;background:var(--dsw-alias-switch-thumb);transition:transform .12s ease}
+.dshc-switch[aria-checked=true]{background:var(--dsw-alias-brand-primary)}
+.dshc-switch[aria-checked=true] .dshc-switch-thumb{transform:translateX(16px);background:var(--dsw-alias-label-primary-foreground)}
+.dshc-switch:disabled{opacity:.5;cursor:default}
+.dshc-switch:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
 .dshc-card-more-wrap{position:relative;display:inline-flex;flex:none}
 .dshc-card-install-actions{position:relative;display:flex;align-items:center;flex:none}
 .dshc-card-more-wrap.dshc-card-more-float{position:absolute;right:32px;top:0;opacity:0;pointer-events:none;transition:opacity .15s}
@@ -6130,7 +6189,7 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-dock-row-name{font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dshc-dock-row-error{font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dshc-dock-row-hint{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px}
-.dshc-dock-toggle{display:inline-flex;align-items:center;justify-content:center;width:28px;height:16px;flex:none}
+.dshc-dock-toggle{display:inline-flex;align-items:center;justify-content:center;width:36px;height:20px;flex:none;color:var(--dsw-alias-label-tertiary)}
 .dshc-dock-connect{display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none;height:24px;padding:0 4px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;cursor:pointer}
 .dshc-dock-connect:hover{color:var(--dsw-alias-label-primary)}
 .dshc-dock-connect:disabled{opacity:.4;cursor:not-allowed}
@@ -6264,7 +6323,7 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-check{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:18px;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .dshc-check input{margin:2px 0 0;accent-color:var(--dsw-alias-state-business-primary)}
 .dshc-dialog-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 24px}
-.dshc-dialog-actions-right{display:flex;align-items:center;gap:8px;margin-left:auto}
+.dshc-dialog-actions-right{display:flex;align-items:center;gap:8px}
 .dshc-empty{padding:48px 0;text-align:center;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
 .dshc-error{margin-bottom:16px;padding:10px 12px;border:.5px solid var(--dsw-alias-state-error-primary);border-radius:var(--dsw-radius-md);color:var(--dsw-alias-state-error-primary);font-size:13px;line-height:20px}
 `
