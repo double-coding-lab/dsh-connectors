@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 
 export interface ExecResult {
   stdout: string
@@ -157,30 +157,49 @@ export function spawnStreaming(
   return { child, done }
 }
 
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
+export function findExecutable(name: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (name.includes('/') || name.includes('\\')) {
+    return isFile(name) ? name : null
+  }
+  const pathValue = env.PATH ?? env.Path ?? ''
+  const extensions = process.platform === 'win32'
+    ? (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD')
+      .split(';')
+      .map(extension => extension.trim())
+      .filter(extension => extension !== '')
+    : ['']
+  const suffixes = process.platform === 'win32' && extensions.some(extension => name.toLowerCase().endsWith(extension.toLowerCase()))
+    ? ['']
+    : extensions
+  for (const rawDir of pathValue.split(delimiter)) {
+    const dir = rawDir.trim().replace(/^"(.*)"$/, '$1')
+    if (dir === '') continue
+    for (const extension of suffixes) {
+      const candidate = join(dir, `${name}${extension}`)
+      if (isFile(candidate)) return candidate
+    }
+  }
+  return null
+}
+
 export async function resolveBinary(
   name: string,
-  exec: ExecFn = defaultExec,
   preferred: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<string | null> {
   for (const candidate of preferred) {
     if (existsSync(candidate)) return candidate
   }
-  const locator = process.platform === 'win32' ? 'where' : 'which'
-  const result = await exec(locator, [name], { timeoutMs: 8_000, acceptFailure: true })
-  const lines = result.stdout
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(line => line !== '')
-  if (process.platform === 'win32') {
-    const preferred = lines.find(line => /\.(exe|cmd)$/i.test(line))
-    if (preferred !== undefined) return preferred
-    for (const line of lines) {
-      for (const ext of ['.cmd', '.exe']) {
-        if (existsSync(`${line}${ext}`)) return `${line}${ext}`
-      }
-    }
-  }
-  if (lines[0] !== undefined) return lines[0]
+  const found = findExecutable(name, env)
+  if (found !== null) return found
 
   const home = homedir()
   const candidates = process.platform === 'win32'

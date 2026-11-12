@@ -89,6 +89,7 @@ const fakeAdapter = {
   docsUrl: '',
   examples: [],
   bin: 'fake-cli',
+  binCandidates: [process.execPath],
   versionArgs: ['--version'],
   install: [],
   uninstall: [{ label: '卸载 fake CLI', command: process.execPath, args: ['-e', '0'] }],
@@ -113,8 +114,7 @@ const fakeService = new CliConnectorService(
   { storageDomain: { open: async () => ({ table: () => fakeTable, close: async () => undefined }) } },
   async (command, args) => {
     commands.push([command, ...args].join(' '))
-    const stdout = command === 'where' ? `fake-cli${String.fromCharCode(10)}` : ''
-    return { stdout, stderr: '', code: 0, timedOut: false }
+    return { stdout: '', stderr: '', code: 0, timedOut: false }
   },
 )
 const started = await fakeService.startUninstall('fake')

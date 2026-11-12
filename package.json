@@ -65,9 +65,10 @@
     "test:provider-schema": "node scripts/test-provider-schema.mjs",
     "test:custom": "node scripts/test-custom-metadata.mjs",
     "test:cli": "node scripts/test-cli-adapters.mjs && node scripts/test-cli-service.mjs",
+    "test:exec": "node scripts/test-exec.mjs",
     "build": "node scripts/build-provider-icons.mjs && node scripts/build-cli-icons.mjs && tsc -p tsconfig.build.json && node scripts/build-client.mjs",
     "typecheck": "node scripts/build-provider-icons.mjs && node scripts/build-cli-icons.mjs && tsc --noEmit && tsc -p tsconfig.client.json",
-    "check": "npm run typecheck && npm run build && npm run providers:check && npm run test:instance && npm run test:provider-schema && npm run test:oauth && npm run test:oauth-callback && npm run test:custom && npm run test:cli && npm run test:sse",
+    "check": "npm run typecheck && npm run build && npm run providers:check && npm run test:instance && npm run test:provider-schema && npm run test:oauth && npm run test:oauth-callback && npm run test:custom && npm run test:cli && npm run test:exec && npm run test:sse",
     "link:web": "npm run build && dsh plugin --profile web add link:.",
     "test:oauth": "node scripts/test-oauth-discovery.mjs",
     "test:oauth-callback": "node scripts/test-oauth-callback.mjs",
@@ -78,9 +79,14 @@
     "dsh": ">=0.2.0-rc.2 <0.3.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "2.2.0",
+    "@modelcontextprotocol/client": "2.4.0",
     "monaco-editor": "^0.57.0",
-    "zod": "4.4.3"
+    "zod": "4.6.7"
+  },
+  "overrides": {
+    "@deepseek-ai/dsh-storage-domain": {
+      "zod": "4.6.7"
+    }
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
