@@ -15,6 +15,8 @@
   <img alt="DSH 0.2.x" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/dsh.svg">
 </div>
 
+[![M8ven Verified](https://m8ven.ai/badge/mcp/double-coding-lab-dsh-connectors-jfnisz?variant=verified&v=955b3ca7689301855e60e743e343d490)](https://m8ven.ai/mcp/double-coding-lab-dsh-connectors-jfnisz?s=readme)
+
 dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP 连接器和 6 个 CLI 连接器（钉钉、飞书、腾讯会议、企业微信、Hugging Face、Agent Mail）。OAuth 在浏览器里完成，凭据只保存在本机；连上后就能在对话里调用这些工具。
 
 ## 架构
