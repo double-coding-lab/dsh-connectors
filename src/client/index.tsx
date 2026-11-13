@@ -6118,6 +6118,7 @@ button.dshc-card-action:focus-visible{outline:2px solid var(--dsw-alias-state-bu
 .dshc-card-auth-actions{display:flex;align-items:center;gap:4px;flex:none}
 .dshc-card-auth-reveal{max-width:0;overflow:hidden;justify-content:flex-end;opacity:0;pointer-events:none;transition:max-width .26s cubic-bezier(.2,0,0,1),opacity .18s ease}
 .dshc-card:hover .dshc-card-auth-reveal,.dshc-card:focus-within .dshc-card-auth-reveal,.dshc-card-menu-open .dshc-card-auth-reveal{max-width:240px;opacity:1;pointer-events:auto}
+.dshc-card-menu-open .dshc-card-auth-reveal{overflow:visible}
 @media (hover:none){.dshc-card-auth-reveal{max-width:240px;opacity:1;pointer-events:auto}}
 .dshc-card-auth{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;white-space:nowrap;cursor:pointer}
 .dshc-spinner-inline{width:12px;height:12px}
