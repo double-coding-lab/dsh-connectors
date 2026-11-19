@@ -25,7 +25,7 @@ dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP
 </p>
 
 - 面板通过 `/dsh-connectors/api/*` 调插件宿主，不在浏览器里保存任何令牌。
-- 插件宿主把连接配置写成 `dsh-mcp-client` 的 loader 条目，由 DSH 负责连接、注册工具与断线恢复。
+- 插件宿主把每个连接注册到 DSH 的 MCP 管理器（`ctx.mcpManager`），由 DSH 负责连接、注册工具与断线恢复；DSH 0.2.2-rc.1 及更早版本没有管理器，改写成 `dsh-mcp-client` 的 loader 条目。
 - 三种外部通道：MCP（Streamable HTTP）、旧版 MCP（SSE 桥）、CLI + Skills；OAuth 授权在系统浏览器完成，回调由宿主接收。
 
 ## 界面与演示

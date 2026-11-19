@@ -68,11 +68,12 @@
     "test:exec": "node scripts/test-exec.mjs",
     "build": "node scripts/build-provider-icons.mjs && node scripts/build-cli-icons.mjs && tsc -p tsconfig.build.json && node scripts/build-client.mjs",
     "typecheck": "node scripts/build-provider-icons.mjs && node scripts/build-cli-icons.mjs && tsc --noEmit && tsc -p tsconfig.client.json",
-    "check": "npm run typecheck && npm run build && npm run providers:check && npm run test:instance && npm run test:provider-schema && npm run test:oauth && npm run test:oauth-callback && npm run test:custom && npm run test:cli && npm run test:exec && npm run test:sse",
+    "check": "npm run typecheck && npm run build && npm run providers:check && npm run test:instance && npm run test:provider-schema && npm run test:oauth && npm run test:oauth-callback && npm run test:custom && npm run test:cli && npm run test:exec && npm run test:sse && npm run test:mcp-manager",
     "link:web": "npm run build && dsh plugin --profile web add link:.",
     "test:oauth": "node scripts/test-oauth-discovery.mjs",
     "test:oauth-callback": "node scripts/test-oauth-callback.mjs",
-    "test:sse": "node scripts/test-sse-bridge.mjs"
+    "test:sse": "node scripts/test-sse-bridge.mjs",
+    "test:mcp-manager": "node scripts/test-mcp-manager.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
@@ -96,7 +97,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.1.0",
-    "@deepseek-ai/dsh-storage-domain": "^0.2.2-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "^0.2.2-rc.5",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.7",

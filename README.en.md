@@ -24,7 +24,7 @@ dsh-connectors is the **Connectors** panel for DeepSeek Harness. It includes 27 
 </p>
 
 - The panel talks to the plugin host over `/dsh-connectors/api/*`; no token is kept in the browser.
-- The host writes each connection as a `dsh-mcp-client` loader entry, so DSH owns the connection, tool registration, and reconnects.
+- The host registers each connection with DSH's MCP manager (`ctx.mcpManager`), so DSH owns the connection, tool registration, and reconnects. DSH 0.2.2-rc.1 and earlier have no manager; there the host writes a `dsh-mcp-client` loader entry instead.
 - Three external paths: MCP over Streamable HTTP, legacy MCP over the SSE bridge, and CLI + Skills. OAuth runs in the system browser and returns to a host callback.
 
 ## UI and demo

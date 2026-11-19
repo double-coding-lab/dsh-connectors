@@ -74,6 +74,22 @@ interface LoaderFace {
   remove: (id: string) => Promise<unknown>
 }
 
+interface McpManagerStatus {
+  state: string
+  lastError?: string
+}
+
+export interface McpManagerFace {
+  register: (name: string, entry: Record<string, unknown>) => () => void
+  list: () => Array<{ name: string; status: McpManagerStatus }>
+}
+
+interface ManagedRegistration {
+  serverName: string
+  fingerprint: string
+  dispose: () => void
+}
+
 interface ToolsFace {
   schemas?: () => Array<{ name?: string; description?: string }>
 }
@@ -260,6 +276,23 @@ function entryConfig(record: ConnectionRecord, failOnStartupError: boolean): Rec
   }
 }
 
+// mcpManager 会把 ${…} 当作凭据模板解析；带这种字面量的条目继续走 loader，保持原样传给服务
+function hasTemplateMarker(config: Record<string, unknown>): boolean {
+  const strings: unknown[] = [
+    config.command,
+    config.cwd,
+    config.url,
+    ...(Array.isArray(config.args) ? config.args : []),
+    ...Object.values((config.env ?? {}) as Record<string, unknown>),
+    ...Object.values((config.headers ?? {}) as Record<string, unknown>),
+  ]
+  return strings.some(value => typeof value === 'string' && value.includes('${'))
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 function secretValues(record: ConnectionRecord): string[] {
   const values = [
     ...(record.auth === undefined ? [] : [record.auth.token]),
@@ -313,6 +346,9 @@ export class ConnectionService {
   private readonly oauthClients = new Map<string, OAuthClient>()
   private readonly oauthMetadata = new Map<string, { metadata: OAuthMetadata; at: number }>()
   private disposing = false
+  private manager: McpManagerFace | undefined
+  private readonly registrations = new Map<string, ManagedRegistration>()
+  private restoreTail: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly ctx: ConnectionContext,
@@ -372,7 +408,33 @@ export class ConnectionService {
     return labels.flatMap(label => buckets.get(label) ?? [])
   }
 
-  async restore(): Promise<void> {
+  // 宿主没有 mcpManager（0.2.2-rc.1 及更早）时等不到 attachManager，超时后用 loader 恢复
+  async start(graceMs = 5000): Promise<void> {
+    const deadline = Date.now() + graceMs
+    while (this.manager === undefined && !this.disposing && Date.now() < deadline) await sleep(100)
+    if (this.manager !== undefined || this.disposing) return
+    await this.restore()
+  }
+
+  async attachManager(manager: McpManagerFace): Promise<void> {
+    this.manager = manager
+    this.registrations.clear()
+    await this.restore()
+  }
+
+  detachManager(): void {
+    this.manager = undefined
+    this.registrations.clear()
+  }
+
+  // loader 恢复与管理器恢复可能前后脚发生，串行执行避免同一连接两边各建一份
+  restore(): Promise<void> {
+    const run = this.restoreTail.then(() => this.restoreOnce())
+    this.restoreTail = run.catch(() => undefined)
+    return run
+  }
+
+  private async restoreOnce(): Promise<void> {
     const table = await this.table()
     for (const [, record] of table.entries()) {
       if (!record.enabled || this.disposing) continue
@@ -1313,7 +1375,7 @@ export class ConnectionService {
         : {}),
       tools: toolDetails.map(tool => tool.name),
       toolDetails,
-      error: record.lastError,
+      error: record.lastError ?? (record.enabled ? this.managedFailure(record) : undefined),
       createdAt: record.createdAt,
     }
   }
@@ -1353,10 +1415,17 @@ export class ConnectionService {
   }
 
   private async provision(record: ConnectionRecord, failOnStartupError: boolean): Promise<void> {
+    const config = entryConfig(record, failOnStartupError)
+    const manager = this.manager
+    if (manager !== undefined && !hasTemplateMarker(config)) {
+      await this.removeLoaderEntry(record.connectorId)
+      await this.registerManaged(manager, record, config, failOnStartupError)
+      return
+    }
+    await this.unregisterManaged(record.connectorId)
     const loader = this.ctx.loader
     if (loader === undefined) throw new ConnectError('loader_unavailable', 'DSH loader 服务不可用')
     const id = entryId(record.connectorId)
-    const config = entryConfig(record, failOnStartupError)
     if (this.hasEntry(id)) {
       await loader.update(id, { config, disabled: false })
     } else {
@@ -1364,7 +1433,88 @@ export class ConnectionService {
     }
   }
 
+  private async registerManaged(
+    manager: McpManagerFace,
+    record: ConnectionRecord,
+    config: Record<string, unknown>,
+    waitForStartup: boolean,
+  ): Promise<void> {
+    const { serverName: _serverName, failOnStartupError: _failOnStartupError, ...transportEntry } = config
+    const serverName = record.serverName
+    const startupTimeoutMs = toolWaitTimeout(record.transport)
+    const entry = { ...transportEntry, startupTimeoutMs }
+    const fingerprint = JSON.stringify(entry)
+    const current = this.registrations.get(record.connectorId)
+    if (
+      !waitForStartup
+      && current !== undefined
+      && current.serverName === serverName
+      && current.fingerprint === fingerprint
+    ) return
+
+    await this.unregisterManaged(record.connectorId)
+    let dispose: () => void
+    try {
+      dispose = manager.register(serverName, entry)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.includes('already configured or registered')) {
+        throw new ConnectError(
+          'connect_failed',
+          `已有同名 MCP 服务 "${serverName}"，请先在 DSH 设置或其他插件中移除同名服务`,
+        )
+      }
+      throw error
+    }
+    this.registrations.set(record.connectorId, { serverName, fingerprint, dispose })
+    if (!waitForStartup) return
+
+    // 管理器不会让启动失败的注册抛错，而是转入重连；用户主动连接时要立刻拿到失败原因
+    const deadline = Date.now() + startupTimeoutMs
+    for (;;) {
+      if (this.manager !== manager) throw new ConnectError('connect_failed', 'DSH MCP 管理服务已重启，请重试')
+      const status = manager.list().find(view => view.name === serverName)?.status
+      if (status?.state === 'connected') return
+      if (status !== undefined && status.state !== 'connecting') {
+        await this.unregisterManaged(record.connectorId)
+        throw new Error(status.lastError ?? `MCP 服务启动失败（${status.state}）`)
+      }
+      if (Date.now() >= deadline) {
+        await this.unregisterManaged(record.connectorId)
+        throw new ConnectError('connect_failed', toolWaitMessage(record.transport, startupTimeoutMs, ''))
+      }
+      await sleep(200)
+    }
+  }
+
+  private async unregisterManaged(connectorId: string): Promise<void> {
+    const current = this.registrations.get(connectorId)
+    if (current === undefined) return
+    this.registrations.delete(connectorId)
+    current.dispose()
+    const manager = this.manager
+    if (manager === undefined) return
+    // 注销后实例异步卸载，等它从列表消失再返回，后续同名注册和工具查询才不会撞上旧实例
+    const deadline = Date.now() + 5000
+    while (Date.now() < deadline && manager.list().some(view => view.name === current.serverName)) {
+      await sleep(50)
+    }
+  }
+
+  private managedFailure(record: ConnectionRecord): string | undefined {
+    const registration = this.registrations.get(record.connectorId)
+    if (registration === undefined || this.manager === undefined) return undefined
+    const status = this.manager.list().find(view => view.name === registration.serverName)?.status
+    if (status?.state !== 'failed') return undefined
+    return describeError(new Error(status.lastError ?? 'MCP 服务已停止重连'), record)
+  }
+
   private async removeEntry(connectorId: string): Promise<void> {
+    await this.unregisterManaged(connectorId)
+    await this.removeLoaderEntry(connectorId)
+  }
+
+  private async removeLoaderEntry(connectorId: string): Promise<void> {
     const loader = this.ctx.loader
     if (loader === undefined) return
     const id = entryId(connectorId)

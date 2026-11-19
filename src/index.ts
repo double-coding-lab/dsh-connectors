@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import { loadBuiltinCatalog } from './host/catalog.js'
 import { CliConnectorService, type CliServiceContext } from './host/cli/service.js'
-import { ConnectionService, type ConnectionContext } from './host/connections.js'
+import { ConnectionService, type ConnectionContext, type McpManagerFace } from './host/connections.js'
 import { registerRoutes } from './host/routes.js'
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
@@ -13,7 +13,7 @@ export const name = 'dsh-connectors'
 export const version = pkg.version
 export const inject = ['tools', 'storageDomain', 'loader', 'webServer']
 
-const SERVICES = ['tools', 'storageDomain', 'loader', 'webServer'] as const
+const SERVICES = ['tools', 'storageDomain', 'loader', 'webServer', 'mcpManager'] as const
 
 type LooseContext = Context & {
   get?: (name: string) => unknown
@@ -28,7 +28,18 @@ export async function apply(ctx: Context): Promise<() => void> {
   const cli = new CliConnectorService(ctx as unknown as CliServiceContext)
   const disposeRoutes = registerRoutes(ctx, { version, capabilities, connections, cli })
 
-  void connections.restore().catch((error: unknown) => {
+  // mcpManager 自 DSH 0.2.2-rc.2 起提供；不放进必需依赖，旧宿主仍可用 loader 建连接
+  const withManager = ctx as unknown as {
+    inject: (deps: string[], callback: (inner: { mcpManager: McpManagerFace }) => () => void) => unknown
+  }
+  withManager.inject(['mcpManager'], (inner) => {
+    void connections.attachManager(inner.mcpManager).catch((error: unknown) => {
+      console.warn('[dsh-connectors] restore connections failed', error)
+    })
+    return () => connections.detachManager()
+  })
+
+  void connections.start().catch((error: unknown) => {
     console.warn('[dsh-connectors] restore connections failed', error)
   })
 
