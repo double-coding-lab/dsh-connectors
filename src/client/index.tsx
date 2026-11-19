@@ -1261,7 +1261,7 @@ function ConnectorPopover(): JSX.Element | null {
 
   return (
     <>
-      <div className="dshc-dock-popover" role="dialog" aria-label={tr("连接器")}>
+      <div className="dshc-dock-popover" data-window-drag-exclude role="dialog" aria-label={tr("连接器")}>
       <label className="dshc-dock-search">
         <IconSearch size={13} />
         <input
@@ -2952,7 +2952,7 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
                   <IconMore size={16} />
                 </button>
                 {menuOpen && (
-                  <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} role="menu" onClick={event => event.stopPropagation()}>
+                  <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} data-window-drag-exclude role="menu" onClick={event => event.stopPropagation()}>
                     {busy ? (
                       <>
                         <button
@@ -3067,7 +3067,7 @@ function CliCardView({ connector, togglePending, pending, pendingAction, onOpen,
                     <IconMore size={16} />
                   </button>
                   {menuOpen && (
-                    <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} role="menu" onClick={event => event.stopPropagation()}>
+                    <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} data-window-drag-exclude role="menu" onClick={event => event.stopPropagation()}>
                       {busy ? (
                         <>
                           <button
@@ -3189,7 +3189,7 @@ function CliInstallDialog({ connector, pending, onClose, onConfirm, onCancel }: 
   const done = !busy && connector.installed
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -3303,7 +3303,7 @@ function CliLoginDialog({ connector, onCancel, onClose }: CliLoginDialogProps): 
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -3421,7 +3421,7 @@ function CliUninstallDialog({ connector, running, pending, error, onClose, onCon
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -3527,7 +3527,7 @@ function CliUpdateDialog({ connector, running, started, error, onClose }: CliUpd
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -3669,7 +3669,7 @@ function CliDetailDialog({ connector, onClose, onTrial, onInstall, onLogin, onUn
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -3880,7 +3880,7 @@ function CliErrorDialog({ connector, onClose }: CliErrorDialogProps): JSX.Elemen
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -4194,7 +4194,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                   <IconMore size={16} />
                 </button>
                 {menuOpen && (
-                  <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} role="menu" onClick={event => event.stopPropagation()}>
+                  <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} data-window-drag-exclude role="menu" onClick={event => event.stopPropagation()}>
                     {editItem}
                     {deleteItem}
                   </span>
@@ -4252,7 +4252,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                 <IconMore size={16} />
               </button>
               {menuOpen && (
-                <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} role="menu" onClick={event => event.stopPropagation()}>
+                <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} data-window-drag-exclude role="menu" onClick={event => event.stopPropagation()}>
                   {reconfigureItem}
                   {editItem}
                   {disconnectItem}
@@ -4292,7 +4292,7 @@ function ConnectorCardView({ card, connection, errorMessage, togglePending, auth
                   <IconMore size={16} />
                 </button>
                 {menuOpen && (
-                  <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} role="menu" onClick={event => event.stopPropagation()}>
+                  <span className={menuAbove ? 'dshc-menu dshc-menu-above' : 'dshc-menu'} data-window-drag-exclude role="menu" onClick={event => event.stopPropagation()}>
                     <button
                       type="button"
                       role="menuitem"
@@ -4997,7 +4997,7 @@ function InstanceDialog({ card, mode, pending, error, onClose, onSubmit }: Insta
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget && !pending) onClose()
       }}
@@ -5129,7 +5129,7 @@ function CredentialDialog({ card, mode, saving, error, onClose, onSubmit }: Cred
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -5264,7 +5264,7 @@ function OAuthAppDialog({ card, saving, error, onClose, onSubmit }: OAuthAppDial
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -5603,7 +5603,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget && !pending) onClose()
       }}
@@ -5892,7 +5892,7 @@ function CustomConnectorDialog({ onClose, categoryOptions, onImported, editing, 
       {categoryOpen && categoryMenu !== null && createPortal(
         <div
           ref={categoryMenuRef}
-          className="dshc-select-menu dshc-select-menu-portal"
+          className="dshc-select-menu dshc-select-menu-portal" data-window-drag-exclude
           style={{ left: categoryMenu.left, top: categoryMenu.top, width: categoryMenu.width }}
           role="listbox"
         >
@@ -5983,7 +5983,7 @@ function DeleteCustomDialog({ card, pending, error, onClose, onConfirm }: Delete
 
   return (
     <div
-      className="dshc-overlay"
+      className="dshc-overlay" data-window-drag-exclude
       onMouseDown={event => {
         if (event.target === event.currentTarget && !pending) onClose()
       }}
