@@ -21,6 +21,9 @@ const PANEL_ID = 'dsh-connectors'
 const STYLE_ID = 'dsh-connectors-style'
 const PROBE_ROUNDS = 6
 const PROBE_INTERVAL_MS = 350
+const DOCK_POPOVER_MAX_HEIGHT = 460
+const DOCK_POPOVER_MIN_HEIGHT = 120
+const DOCK_POPOVER_GAP = 8
 
 function customSummary(card: ConnectorCard): string {
   return tr(card.server.transport === 'stdio'
@@ -1020,6 +1023,37 @@ function ConnectorPopover(): JSX.Element | null {
     if (state.open) void refreshDock()
   }, [state.open])
 
+  // 浮层向上弹出，超出页面容器顶部的部分会被裁掉且滚不到，所以高度按输入框上方的实际空间限制
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const [maxHeight, setMaxHeight] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    if (!state.open) return
+    const anchor = popoverRef.current?.offsetParent
+    if (anchor == null) return
+    let clip: HTMLElement | null = null
+    for (let node = anchor.parentElement; node !== null; node = node.parentElement) {
+      if (getComputedStyle(node).overflowY !== 'visible') {
+        clip = node
+        break
+      }
+    }
+    // 输入框会随页面布局移动（新会话页居中、会话页贴底、过渡动画）而尺寸不变，监听不到，所以打开期间逐帧比对
+    let frame = 0
+    let applied = -1
+    const measure = (): void => {
+      const clipTop = Math.max(clip?.getBoundingClientRect().top ?? 0, 0)
+      const room = Math.floor(anchor.getBoundingClientRect().top - clipTop - DOCK_POPOVER_GAP * 2)
+      const next = Math.max(DOCK_POPOVER_MIN_HEIGHT, Math.min(DOCK_POPOVER_MAX_HEIGHT, room))
+      if (next !== applied) {
+        applied = next
+        setMaxHeight(next)
+      }
+      frame = requestAnimationFrame(measure)
+    }
+    measure()
+    return () => cancelAnimationFrame(frame)
+  }, [state.open])
+
   const cliActive = state.cli.some(connector => connector.phase !== 'idle' && connector.phase !== 'error')
   useEffect(() => {
     if (!state.open) return
@@ -1261,7 +1295,14 @@ function ConnectorPopover(): JSX.Element | null {
 
   return (
     <>
-      <div className="dshc-dock-popover" data-window-drag-exclude role="dialog" aria-label={tr("连接器")}>
+      <div
+        ref={popoverRef}
+        className="dshc-dock-popover"
+        data-window-drag-exclude
+        role="dialog"
+        aria-label={tr("连接器")}
+        style={maxHeight === null ? undefined : { maxHeight }}
+      >
       <label className="dshc-dock-search">
         <IconSearch size={13} />
         <input
