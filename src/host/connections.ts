@@ -1,7 +1,7 @@
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import { fileURLToPath } from 'node:url'
 
-import type { CardAuth, ConnectorCard, ConnectionView, CustomConfigView, ToolInfo } from '../shared/types.js'
+import type { CardAuth, ConnectorCard, ConnectionView, CustomConfigView, HostFeatures, ToolInfo } from '../shared/types.js'
 import { BUILTIN_CATEGORIES, MAX_EXAMPLES, resolveCategory, validateCategory } from '../shared/categories.js'
 import { CUSTOM_SECRET_PLACEHOLDER } from '../shared/customConfig.js'
 import { ROUTE_PREFIX } from '../shared/types.js'
@@ -32,6 +32,7 @@ const OAUTH_PENDING_TTL_MS = 10 * 60 * 1000
 const OAUTH_FLOW_TTL_MS = 2 * 60 * 1000
 const OAUTH_REFRESH_SKEW_MS = 60 * 1000
 const OAUTH_METADATA_TTL_MS = 10 * 60 * 1000
+const MANAGER_OAUTH_URL_WAIT_MS = 15_000
 // GitLab.com 的 initialize + tools/list 实测可达 15s，5s 会让正常连接误判失败
 const TOOL_WAIT_TIMEOUT_MS = 30_000
 // stdio 首次由 npx 拉包实测要 80s 以上才完成 initialize，按 HTTP 的 30s 会误判
@@ -79,9 +80,38 @@ interface McpManagerStatus {
   lastError?: string
 }
 
+interface McpOAuthAttempt {
+  id: string
+  phase: 'starting' | 'waiting-browser' | 'exchanging' | 'committing' | 'authorized' | 'cancelled' | 'failed'
+  authorizationUrl?: string
+  lastError?: string
+}
+
+interface McpManagerView {
+  name: string
+  status: McpManagerStatus
+  authorization?: McpOAuthAttempt
+}
+
+// startAuthorization 等方法是 DSH 0.2.3 才有的；旧宿主没有它们，继续用插件自己的 OAuth 流程
 export interface McpManagerFace {
   register: (name: string, entry: Record<string, unknown>) => () => void
-  list: () => Array<{ name: string; status: McpManagerStatus }>
+  list: () => McpManagerView[]
+  startAuthorization?: (name: string) => Promise<McpOAuthAttempt>
+  cancelAuthorization?: (name: string, id: string) => Promise<void>
+  signOut?: (name: string) => Promise<void>
+}
+
+interface ManagedOAuthFlow {
+  connectorId: string
+  serverName: string
+  createdAt: number
+}
+
+const OFFICIAL_CONNECTORS: Record<string, string> = {
+  linear: 'Linear',
+  notion: 'Notion',
+  'tencent-docs': '腾讯文档',
 }
 
 interface ManagedRegistration {
@@ -345,6 +375,7 @@ export class ConnectionService {
   private readonly oauthFlows = new Map<string, OAuthFlow>()
   private readonly oauthClients = new Map<string, OAuthClient>()
   private readonly oauthMetadata = new Map<string, { metadata: OAuthMetadata; at: number }>()
+  private readonly managerFlows = new Map<string, ManagedOAuthFlow>()
   private disposing = false
   private manager: McpManagerFace | undefined
   private readonly registrations = new Map<string, ManagedRegistration>()
@@ -440,7 +471,12 @@ export class ConnectionService {
       if (!record.enabled || this.disposing) continue
       const card = this.cardFor(record.connectorId)
       if (card?.instance !== undefined && record.url === undefined) continue
-      if (this.needsAuth(card) && record.auth === undefined && record.oauth === undefined) continue
+      if (
+        this.needsAuth(card)
+        && record.auth === undefined
+        && record.oauth === undefined
+        && !this.usesManagerOAuth(record)
+      ) continue
       try {
         const fresh = await this.ensureFreshOAuth(record)
         if (fresh !== record) await table.put(fresh.key, fresh)
@@ -507,11 +543,15 @@ export class ConnectionService {
 
     try {
       await this.provision(record, true)
-      const timeoutMs = toolWaitTimeout(record.transport)
-      const tools = await this.waitForTools(record.serverName, timeoutMs)
-      if (tools.length === 0) {
-        await this.removeEntry(record.connectorId)
-        throw new ConnectError('connect_failed', toolWaitMessage(record.transport, timeoutMs, '连接已提交，但 '))
+      // 管理器宿主统一按需加载，工具不进列表，注册后 connected 即成功；走 loader 的条目仍需等工具出现
+      const onDemand = this.registrations.has(record.connectorId) && this.features().toolLoading
+      if (!onDemand) {
+        const timeoutMs = toolWaitTimeout(record.transport)
+        const tools = await this.waitForTools(record.serverName, timeoutMs)
+        if (tools.length === 0) {
+          await this.removeEntry(record.connectorId)
+          throw new ConnectError('connect_failed', toolWaitMessage(record.transport, timeoutMs, '连接已提交，但 '))
+        }
       }
     } catch (error) {
       if (previous !== undefined) await this.rememberError(record.key, describeError(error, record))
@@ -552,6 +592,7 @@ export class ConnectionService {
       await this.removeEntry(card.id)
       const record: ConnectionRecord = { ...base, url }
       await table.put(record.key, record)
+      if (this.usesManagerOAuth(record)) await this.provision(record, false)
       return this.view(record)
     }
 
@@ -568,14 +609,17 @@ export class ConnectionService {
     const record: ConnectionRecord = { ...base, url, auth: this.authFor(card, token) }
     try {
       await this.provision(record, true)
-      const timeoutMs = TOOL_WAIT_TIMEOUT_MS
-      const tools = await this.waitForTools(record.serverName, timeoutMs)
-      if (tools.length === 0) {
-        await this.removeEntry(record.connectorId)
-        throw new ConnectError(
-          'connect_failed',
-          `连接已提交，但 ${timeoutMs / 1000} 秒内没有发现工具，请检查服务地址或凭据`,
-        )
+      const onDemand = this.registrations.has(record.connectorId) && this.features().toolLoading
+      if (!onDemand) {
+        const timeoutMs = TOOL_WAIT_TIMEOUT_MS
+        const tools = await this.waitForTools(record.serverName, timeoutMs)
+        if (tools.length === 0) {
+          await this.removeEntry(record.connectorId)
+          throw new ConnectError(
+            'connect_failed',
+            `连接已提交，但 ${timeoutMs / 1000} 秒内没有发现工具，请检查服务地址或凭据`,
+          )
+        }
       }
     } catch (error) {
       if (previous !== undefined) await this.rememberError(record.key, describeError(error, record))
@@ -589,6 +633,13 @@ export class ConnectionService {
 
   async disconnect(connectorId: string): Promise<void> {
     const table = await this.table()
+    const record = table.get(connectorId)
+    if (record !== undefined && this.usesManagerOAuth(record)) {
+      // 卸载时一并删除管理器里的授权，重装不会再悄悄复用旧凭据
+      await this.signOutManager(record).catch((error: unknown) => {
+        console.warn('[dsh-connectors] sign out failed', describeError(error, record))
+      })
+    }
     await this.removeEntry(connectorId)
     await table.delete(connectorId)
   }
@@ -597,6 +648,16 @@ export class ConnectionService {
     const table = await this.table()
     const record = table.get(connectorId)
     if (record === undefined) throw new ConnectError('not_found', '连接记录不存在')
+    if (this.usesManagerOAuth(record)) {
+      try {
+        await this.signOutManager(record)
+      } catch (error) {
+        throw new ConnectError('oauth_failed', describeError(error, record))
+      }
+      const updated: ConnectionRecord = { ...record, lastError: undefined, updatedAt: Date.now() }
+      await table.put(connectorId, updated)
+      return this.view(updated)
+    }
     if (record.oauth === undefined) return this.view(record)
 
     await this.removeEntry(connectorId)
@@ -628,9 +689,15 @@ export class ConnectionService {
     for (const [state, flow] of this.oauthFlows) {
       if (flow.connectorId === connectorId) this.oauthFlows.delete(state)
     }
+    for (const [flowId, flow] of this.managerFlows) {
+      if (flow.connectorId === connectorId) this.managerFlows.delete(flowId)
+    }
 
     if (previous.url === url) return this.view(previous)
 
+    if (this.usesManagerOAuth(previous)) {
+      await this.signOutManager(previous).catch(() => undefined)
+    }
     await this.removeEntry(connectorId)
     const { oauth: _oauth, auth: _auth, ...rest } = previous
     const updated: ConnectionRecord = {
@@ -662,7 +729,12 @@ export class ConnectionService {
       return this.view(updated)
     }
 
-    if (this.needsAuth(this.cardFor(connectorId)) && record.auth === undefined && record.oauth === undefined) {
+    if (
+      this.needsAuth(this.cardFor(connectorId))
+      && record.auth === undefined
+      && record.oauth === undefined
+      && !this.usesManagerOAuth(record)
+    ) {
       const updated: ConnectionRecord = {
         ...record,
         enabled: true,
@@ -671,6 +743,22 @@ export class ConnectionService {
       }
       await table.put(connectorId, updated)
       return this.view(updated)
+    }
+
+    if (this.usesManagerOAuth(record)) {
+      const next: ConnectionRecord = { ...record, enabled: true, lastError: undefined, updatedAt: Date.now() }
+      try {
+        await this.provision(next, false)
+        if (this.managerAuthorized(next)) await this.waitForManagerConnected(next, toolWaitTimeout(next.transport))
+      } catch (error) {
+        await this.removeEntry(connectorId).catch(() => undefined)
+        const message = describeError(error, next)
+        await table.put(connectorId, { ...next, enabled: false, lastError: message, updatedAt: Date.now() })
+        if (error instanceof ConnectError) throw error
+        throw new ConnectError('connect_failed', message)
+      }
+      await table.put(connectorId, next)
+      return this.view(next)
     }
 
     const updated: ConnectionRecord = {
@@ -717,7 +805,9 @@ export class ConnectionService {
 
     const table = await this.table()
     const previous = table.get(card.id)
-    if (previous?.oauth !== undefined) return this.view(previous)
+    if (previous?.oauth !== undefined || (previous !== undefined && this.usesManagerOAuth(previous) && this.managerAuthorized(previous))) {
+      return this.view(previous)
+    }
 
     const url = server.url
 
@@ -737,6 +827,8 @@ export class ConnectionService {
     }
     await this.removeEntry(card.id)
     await table.put(record.key, record)
+    // 交给管理器的 OAuth：先注册带 oauth 的条目，授权由管理器的 startAuthorization 发起
+    if (this.usesManagerOAuth(record)) await this.provision(record, false)
     return this.view(record)
   }
 
@@ -774,10 +866,77 @@ export class ConnectionService {
     return this.catalog().find(item => item.id === connectorId)
   }
 
+  features(): HostFeatures {
+    const manager = this.manager
+    const managerOAuth = manager !== undefined
+      && typeof manager.startAuthorization === 'function'
+      && typeof manager.cancelAuthorization === 'function'
+      && typeof manager.signOut === 'function'
+    return { managerOAuth, toolLoading: managerOAuth }
+  }
+
+  private managerViewByName(serverName: string): McpManagerView | undefined {
+    return this.manager?.list().find(view => view.name === serverName)
+  }
+
+  // 只有标准发现 + DCR/固定 clientId 的 OAuth 才能交给管理器；需要用户填应用密钥的仍走插件自己的流程。
+  // 升级前已拿到令牌的记录继续用旧令牌，避免管理器条目同时带 OAuth 与 Authorization 头而被拒绝。
+  private usesManagerOAuth(record: ConnectionRecord): boolean {
+    if (!this.features().managerOAuth) return false
+    if (record.oauth !== undefined) return false
+    const auth = this.cardFor(record.connectorId)?.auth
+    if (auth?.type !== 'oauth2') return false
+    if (auth.registration === 'user' || auth.endpoints !== undefined) return false
+    return record.transport === 'streamable-http'
+  }
+
+  private managerAuthorized(record: ConnectionRecord): boolean {
+    const view = this.managerViewByName(record.serverName)
+    if (view === undefined) return false
+    if (view.status.state === 'connected' || view.status.state === 'reconnecting') return true
+    return view.authorization?.phase === 'authorized'
+  }
+
+  private pruneManagerFlows(): void {
+    const now = Date.now()
+    for (const [flowId, flow] of this.managerFlows) {
+      if (now - flow.createdAt > OAUTH_PENDING_TTL_MS) this.managerFlows.delete(flowId)
+    }
+  }
+
+  private async waitForManagerConnected(record: ConnectionRecord, timeoutMs: number): Promise<void> {
+    if (this.manager === undefined) return
+    // 走 loader 的条目（含 ${…} 字面量）不在管理器列表里，不能按管理器状态等
+    if (!this.registrations.has(record.connectorId)) return
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const status = this.managerViewByName(record.serverName)?.status
+      if (status?.state === 'connected') return
+      if (status?.state === 'waiting-authorization') return
+      if (status !== undefined && status.state !== 'connecting' && status.state !== 'reconnecting') {
+        throw new ConnectError('connect_failed', status.lastError ?? `MCP 服务启动失败（${status.state}）`)
+      }
+      if (Date.now() >= deadline) return
+      await sleep(200)
+    }
+  }
+
+  private async signOutManager(record: ConnectionRecord): Promise<void> {
+    const manager = this.manager
+    if (manager?.signOut === undefined) return
+    if (!manager.list().some(view => view.name === record.serverName)) return
+    await manager.signOut(record.serverName)
+  }
+
   async startOAuth(connectorId: string, redirectUri: string, fallbackRedirectUri?: string): Promise<{ authorizeUrl: string; flowId: string; opened: boolean }> {
     const card = this.catalog().find(item => item.id === connectorId)
     if (card === undefined || !card.published || card.auth.type !== 'oauth2') {
       throw new ConnectError('not_found', '连接器不存在或未发布')
+    }
+
+    const managedRecord = (await this.table()).get(connectorId)
+    if (managedRecord !== undefined && this.usesManagerOAuth(managedRecord)) {
+      return this.startManagerOAuth(managedRecord)
     }
 
     let redirect: string
@@ -880,6 +1039,43 @@ export class ConnectionService {
     return { authorizeUrl, flowId: state, opened }
   }
 
+  // DSH 0.2.3 起管理器自己做发现、DCR、回调与凭据刷新；插件只负责注册条目、发起授权并映射状态
+  private async startManagerOAuth(record: ConnectionRecord): Promise<{ authorizeUrl: string; flowId: string; opened: boolean }> {
+    const manager = this.manager
+    if (manager?.startAuthorization === undefined) {
+      throw new ConnectError('oauth_failed', 'DSH MCP 管理器不支持授权，请升级宿主')
+    }
+    await this.provision(record, false)
+    const attempt = await manager.startAuthorization(record.serverName)
+    const authorizeUrl = await this.waitForAuthorizationUrl(record.serverName, attempt.id)
+    this.pruneManagerFlows()
+    this.managerFlows.set(attempt.id, {
+      connectorId: record.connectorId,
+      serverName: record.serverName,
+      createdAt: Date.now(),
+    })
+    const opened = await openExternal(authorizeUrl)
+    return { authorizeUrl, flowId: attempt.id, opened }
+  }
+
+  private async waitForAuthorizationUrl(serverName: string, attemptId: string): Promise<string> {
+    const deadline = Date.now() + MANAGER_OAUTH_URL_WAIT_MS
+    for (;;) {
+      const attempt = this.managerViewByName(serverName)?.authorization
+      if (attempt !== undefined && attempt.id === attemptId) {
+        if (attempt.authorizationUrl !== undefined) return attempt.authorizationUrl
+        if (attempt.phase === 'failed') {
+          throw new ConnectError('oauth_failed', attempt.lastError ?? '授权失败，请重试')
+        }
+        if (attempt.phase === 'cancelled') throw new ConnectError('oauth_cancelled', '已取消授权')
+      }
+      if (Date.now() >= deadline) {
+        throw new ConnectError('oauth_failed', '授权服务没有返回授权地址，请重试')
+      }
+      await sleep(200)
+    }
+  }
+
   async saveOAuthClient(connectorId: string, clientId: string, clientSecret: string): Promise<ConnectionView> {
     const card = this.cardFor(connectorId)
     if (card === undefined || card.auth.type !== 'oauth2' || card.auth.registration !== 'user') {
@@ -947,6 +1143,16 @@ export class ConnectionService {
   }
 
   oauthFlowStatus(flowId: string): { status: 'pending' | 'done' | 'error' | 'expired'; message?: string } {
+    this.pruneManagerFlows()
+    const managed = this.managerFlows.get(flowId)
+    if (managed !== undefined) {
+      const attempt = this.managerViewByName(managed.serverName)?.authorization
+      if (attempt === undefined || attempt.id !== flowId) return { status: 'expired' }
+      if (attempt.phase === 'authorized') return { status: 'done' }
+      if (attempt.phase === 'failed') return { status: 'error', message: attempt.lastError ?? '授权失败，请重试' }
+      if (attempt.phase === 'cancelled') return { status: 'error', message: '已取消授权' }
+      return { status: 'pending' }
+    }
     this.pruneOAuthFlows()
     const flow = this.oauthFlows.get(flowId)
     if (flow === undefined) return { status: 'expired' }
@@ -964,7 +1170,17 @@ export class ConnectionService {
     this.oauthFlows.set(flowId, { ...flow, status: 'error', message })
   }
 
-  cancelOAuth(flowId: string): void {
+  async cancelOAuth(flowId: string): Promise<void> {
+    this.pruneManagerFlows()
+    const managed = this.managerFlows.get(flowId)
+    if (managed !== undefined) {
+      this.managerFlows.delete(flowId)
+      const manager = this.manager
+      if (manager?.cancelAuthorization !== undefined) {
+        await manager.cancelAuthorization(managed.serverName, flowId).catch(() => undefined)
+      }
+      return
+    }
     this.pruneOAuthPending()
     this.oauthPending.delete(flowId)
     this.oauthFlows.delete(flowId)
@@ -1368,7 +1584,13 @@ export class ConnectionService {
       transport: record.transport,
       enabled: record.enabled,
       authorized: endpointReady
-        && (!this.needsAuth(card) || record.auth !== undefined || record.oauth !== undefined),
+        && (!this.needsAuth(card)
+          || record.auth !== undefined
+          || record.oauth !== undefined
+          || (this.usesManagerOAuth(record) && this.managerAuthorized(record))),
+      ...(toolDetails.some(tool => tool.name === `mcp__${record.serverName}__load_tools`)
+        ? { toolLoading: 'on-demand' as const }
+        : {}),
       ...(card?.instance === undefined ? {} : { instanceReady: record.url !== undefined }),
       ...(card?.auth.type === 'oauth2' && card.auth.registration === 'user'
         ? { oauthClientReady: record.oauthClient !== undefined || record.oauth !== undefined }
@@ -1442,7 +1664,18 @@ export class ConnectionService {
     const { serverName: _serverName, failOnStartupError: _failOnStartupError, ...transportEntry } = config
     const serverName = record.serverName
     const startupTimeoutMs = toolWaitTimeout(record.transport)
-    const entry = { ...transportEntry, startupTimeoutMs }
+    const entry: Record<string, unknown> = { ...transportEntry, startupTimeoutMs }
+    if (this.features().toolLoading) entry.toolLoading = 'on-demand'
+    if (this.usesManagerOAuth(record)) {
+      const auth = this.cardFor(record.connectorId)?.auth
+      entry.oauth = {
+        // 固定键位，重装后仍复用同一份授权
+        credentialKey: `mcp-client/${serverName}`,
+        ...(auth?.type === 'oauth2' && auth.scopes !== undefined && auth.scopes.length > 0
+          ? { scope: auth.scopes.join(' ') }
+          : {}),
+      }
+    }
     const fingerprint = JSON.stringify(entry)
     const current = this.registrations.get(record.connectorId)
     if (
@@ -1459,9 +1692,12 @@ export class ConnectionService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (message.includes('already configured or registered')) {
+        const official = OFFICIAL_CONNECTORS[serverName]
         throw new ConnectError(
           'connect_failed',
-          `已有同名 MCP 服务 "${serverName}"，请先在 DSH 设置或其他插件中移除同名服务`,
+          official === undefined
+            ? `已有同名 MCP 服务 "${serverName}"，请先在 DSH 设置或其他插件中移除同名服务`
+            : `已有同名 MCP 服务 "${serverName}"：可能是官方 ${official} 插件已启用。请在插件页使用官方插件，或先停用后重试`,
         )
       }
       throw error
@@ -1475,6 +1711,8 @@ export class ConnectionService {
       if (this.manager !== manager) throw new ConnectError('connect_failed', 'DSH MCP 管理服务已重启，请重试')
       const status = manager.list().find(view => view.name === serverName)?.status
       if (status?.state === 'connected') return
+      // 交给管理器的 OAuth：条目已注册，等待用户授权不算启动失败
+      if (status?.state === 'waiting-authorization') return
       if (status !== undefined && status.state !== 'connecting') {
         await this.unregisterManaged(record.connectorId)
         throw new Error(status.lastError ?? `MCP 服务启动失败（${status.state}）`)

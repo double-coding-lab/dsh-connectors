@@ -278,7 +278,13 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
       }
 
       if (req.method === 'GET' && path === `${ROUTE_PREFIX}/api/connections`) {
-        json(res, 200, { ok: true, value: { connections: await options.connections.list() } })
+        json(res, 200, {
+          ok: true,
+          value: {
+            connections: await options.connections.list(),
+            features: options.connections.features(),
+          },
+        })
         return
       }
 
@@ -338,7 +344,7 @@ export function registerRoutes(ctx: Context, options: RouteOptions): () => void 
         if (typeof body.flowId !== 'string' || body.flowId === '') {
           throw new ConnectError('invalid_request', '缺少 flowId')
         }
-        options.connections.cancelOAuth(body.flowId)
+        await options.connections.cancelOAuth(body.flowId)
         json(res, 200, { ok: true, value: {} })
         return
       }

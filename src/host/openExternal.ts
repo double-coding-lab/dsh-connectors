@@ -8,6 +8,8 @@ export function openExternal(url: string): Promise<boolean> {
     return Promise.resolve(false)
   }
   if (target.protocol !== 'https:' && target.protocol !== 'http:') return Promise.resolve(false)
+  // 单元测试里不真的拉起浏览器
+  if (process.env.DSH_CONNECTORS_NO_BROWSER === '1') return Promise.resolve(false)
 
   let command: string
   let args: string[]

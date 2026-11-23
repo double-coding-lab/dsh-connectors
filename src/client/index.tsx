@@ -4644,7 +4644,7 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
           )}
           {error !== null && error !== connection?.error && <p className="dshc-dialog-error">{error}</p>}
 
-          {toolDetails.length > 0 && (
+          {toolDetails.length > 0 && connection?.toolLoading !== 'on-demand' && (
             <section className="dshc-tools">
               <div className="dshc-tools-head">
                 <h3>{tr("可用工具")}</h3>
@@ -4707,7 +4707,10 @@ function ConnectorDialog({ card, connection, pending, toggling, authorizing, con
             </section>
           )}
           {disabled && <p className="dshc-dialog-hint">{tr("已停用，启用后会重新注册工具。")}</p>}
-          {connected && toolDetails.length === 0 && (
+          {connected && connection?.toolLoading === 'on-demand' && (
+            <p className="dshc-dialog-hint">{tr('工具按需加载：模型需要时会加载该连接器的工具。')}</p>
+          )}
+          {connected && connection?.toolLoading !== 'on-demand' && toolDetails.length === 0 && (
             <p className="dshc-dialog-hint">{connecting ? tr('正在连接…') : tr('正在注册工具…')}</p>
           )}
 

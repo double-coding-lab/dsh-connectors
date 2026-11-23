@@ -74,6 +74,11 @@ export interface ToolInfo {
   description?: string
 }
 
+export interface HostFeatures {
+  managerOAuth: boolean
+  toolLoading: boolean
+}
+
 export interface ConnectionView {
   connectorId: string
   name: string
@@ -83,6 +88,7 @@ export interface ConnectionView {
   authorized: boolean
   instanceReady?: boolean
   oauthClientReady?: boolean
+  toolLoading?: 'on-demand'
   tools: string[]
   toolDetails: ToolInfo[]
   error?: string
@@ -93,6 +99,7 @@ export interface ConnectionsPayload {
   ok: true
   value: {
     connections: ConnectionView[]
+    features?: HostFeatures
   }
 }
 
