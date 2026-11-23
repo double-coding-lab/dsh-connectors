@@ -9,7 +9,7 @@
 <br>
 
 <div align="center" class="text-center">
-  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm 0.3.1" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/npm.svg"></a>
+  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm 0.4.0" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/npm.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub: double-coding-lab/dsh-connectors" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/github.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors/blob/main/LICENSE"><img alt="MIT" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/mit.svg"></a>
   <img alt="DSH 0.2.x" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/dsh.svg">
@@ -24,7 +24,7 @@ dsh-connectors is the **Connectors** panel for DeepSeek Harness. It includes 27 
 </p>
 
 - The panel talks to the plugin host over `/dsh-connectors/api/*`; no token is kept in the browser.
-- The host registers each connection with DSH's MCP manager (`ctx.mcpManager`), so DSH owns the connection, tool registration, and reconnects. DSH 0.2.2-rc.1 and earlier have no manager; there the host writes a `dsh-mcp-client` loader entry instead.
+- The host registers each connection with DSH's MCP manager (`ctx.mcpManager`), so DSH owns the connection, tool registration, and reconnects. On DSH 0.2.3 and later, tools load on demand and OAuth is handled by the manager with automatic credential refresh. DSH 0.2.2-rc.1 and earlier have no manager; there the host writes a `dsh-mcp-client` loader entry instead.
 - Three external paths: MCP over Streamable HTTP, legacy MCP over the SSE bridge, and CLI + Skills. OAuth runs in the system browser and returns to a host callback.
 
 ## UI and demo
@@ -35,7 +35,8 @@ Browse by category or search, then click the plus button on a card to install.
 
 ## What it does
 
-- **OAuth in your browser**: DCR + PKCE with automatic token refresh, including self-hosted GitLab and services that need a user-supplied endpoint.
+- **OAuth in your browser**: DCR + PKCE; on DSH 0.2.3 and later the host MCP manager owns authorization and credentials and refreshes them automatically, while older hosts keep the plugin's own flow. Also covers self-hosted GitLab and services that need a user-supplied endpoint.
+- **Tools load on demand**: on DSH 0.2.3 and later, a connector's tools stay out of the tool list until the model loads them through `load_tools`, saving context; older hosts still register every tool.
 - **Tokens and custom endpoints**: API-key services use a token dialog; self-hosted services take a full MCP URL that stays on your machine.
 - **CLI login and updates in the panel**: DingTalk, Feishu, Tencent Meeting, WeCom, Hugging Face, and Agent Mail run through their official CLIs; install, login, update, and uninstall all happen in the panel.
 - **SSE-only servers work too**: a built-in stdio bridge adapts them for `dsh-mcp-client`; Baidu Netdisk uses this path.
@@ -70,7 +71,7 @@ By auth method: OAuth 2.0 (16), API key or token (6), no credentials (5), CLI + 
 
 ## Install
 
-Requirements: Node `^22.19.0 || >=24.0.0`, DeepSeek Harness `>=0.2.0-rc.2 <0.3.0`.
+Requirements: Node `^22.19.0 || >=24.0.0`, DeepSeek Harness `>=0.2.0-rc.2 <0.3.0`. On 0.2.3 the manager provides on-demand loading and hosted OAuth; 0.2.0-rc.2 through 0.2.2 still work with the plugin's own OAuth and eager tool registration.
 
 ### DSH Desktop
 

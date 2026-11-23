@@ -9,7 +9,7 @@
 <br>
 
 <div align="center" class="text-center">
-  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm 0.3.1" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/npm.svg"></a>
+  <a href="https://www.npmjs.com/package/@double-coding/dsh-connectors"><img alt="npm 0.4.0" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/npm.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors"><img alt="GitHub: double-coding-lab/dsh-connectors" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/github.svg"></a>
   <a href="https://github.com/double-coding-lab/dsh-connectors/blob/main/LICENSE"><img alt="MIT" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/mit.svg"></a>
   <img alt="DSH 0.2.x" src="https://raw.githubusercontent.com/double-coding-lab/dsh-connectors/main/assets/readme/badges/dsh.svg">
@@ -25,7 +25,7 @@ dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP
 </p>
 
 - 面板通过 `/dsh-connectors/api/*` 调插件宿主，不在浏览器里保存任何令牌。
-- 插件宿主把每个连接注册到 DSH 的 MCP 管理器（`ctx.mcpManager`），由 DSH 负责连接、注册工具与断线恢复；DSH 0.2.2-rc.1 及更早版本没有管理器，改写成 `dsh-mcp-client` 的 loader 条目。
+- 插件宿主把每个连接注册到 DSH 的 MCP 管理器（`ctx.mcpManager`），由 DSH 负责连接、注册工具与断线恢复；DSH 0.2.3 起工具默认按需加载，OAuth 也交给管理器完成并自动刷新凭据。DSH 0.2.2-rc.1 及更早版本没有管理器，改写成 `dsh-mcp-client` 的 loader 条目。
 - 三种外部通道：MCP（Streamable HTTP）、旧版 MCP（SSE 桥）、CLI + Skills；OAuth 授权在系统浏览器完成，回调由宿主接收。
 
 ## 界面与演示
@@ -36,7 +36,8 @@ dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP
 
 ## 主要能力
 
-- **OAuth 在浏览器里完成**：DCR + PKCE，令牌过期前自动刷新；也支持 GitLab 自建、企查查数据域这类需要填写地址的服务。
+- **OAuth 在浏览器里完成**：DCR + PKCE；DSH 0.2.3 起授权与令牌由宿主 MCP 管理器保管并自动刷新，旧宿主仍由插件自管。也支持 GitLab 自建、企查查数据域这类需要填写地址的服务。
+- **工具按需加载**：DSH 0.2.3 起连接器的工具不直接进入工具列表，模型需要时通过 `load_tools` 加载，减少上下文占用；旧宿主仍全量注册。
 - **Token 和自定义地址**：需要 API Key 的服务用独立令牌弹窗；自建服务填写完整的 MCP 地址，地址只保存在本机。
 - **CLI 连接的登录和更新也在面板里**：钉钉、飞书、腾讯会议、企业微信、Hugging Face、Agent Mail 通过官方 CLI 工作；安装、登录、更新、卸载都在面板里完成。
 - **SSE 服务也能接入**：插件内置 stdio 桥，把只提供 SSE 的 MCP Server 转接给 `dsh-mcp-client`；百度网盘用的就是这种方式。
@@ -71,7 +72,7 @@ dsh-connectors 是 DeepSeek Harness 的「连接器」面板。内置 27 个 MCP
 
 ## 安装
 
-要求：Node `^22.19.0 || >=24.0.0`，DeepSeek Harness `>=0.2.0-rc.2 <0.3.0`。
+要求：Node `^22.19.0 || >=24.0.0`，DeepSeek Harness `>=0.2.0-rc.2 <0.3.0`。DSH 0.2.3 起启用按需加载与托管 OAuth；0.2.0-rc.2 到 0.2.2 仍可用，使用插件自管的 OAuth 与全量工具注册。
 
 ### DSH Desktop
 

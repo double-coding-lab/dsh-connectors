@@ -1,6 +1,6 @@
 {
   "name": "@double-coding/dsh-connectors",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "DeepSeek Harness MCP connector panel: browse a connector catalog, connect MCP servers, manage credentials, and import mcpServers JSON.",
   "keywords": [
     "deepseek-harness",
@@ -68,12 +68,13 @@
     "test:exec": "node scripts/test-exec.mjs",
     "build": "node scripts/build-provider-icons.mjs && node scripts/build-cli-icons.mjs && tsc -p tsconfig.build.json && node scripts/build-client.mjs",
     "typecheck": "node scripts/build-provider-icons.mjs && node scripts/build-cli-icons.mjs && tsc --noEmit && tsc -p tsconfig.client.json",
-    "check": "npm run typecheck && npm run build && npm run providers:check && npm run test:instance && npm run test:provider-schema && npm run test:oauth && npm run test:oauth-callback && npm run test:custom && npm run test:cli && npm run test:exec && npm run test:sse && npm run test:mcp-manager",
+    "check": "npm run typecheck && npm run build && npm run providers:check && npm run test:instance && npm run test:provider-schema && npm run test:oauth && npm run test:oauth-callback && npm run test:custom && npm run test:cli && npm run test:exec && npm run test:sse && npm run test:mcp-manager && npm run test:alpha",
     "link:web": "npm run build && dsh plugin --profile web add link:.",
     "test:oauth": "node scripts/test-oauth-discovery.mjs",
     "test:oauth-callback": "node scripts/test-oauth-callback.mjs",
     "test:sse": "node scripts/test-sse-bridge.mjs",
-    "test:mcp-manager": "node scripts/test-mcp-manager.mjs"
+    "test:mcp-manager": "node scripts/test-mcp-manager.mjs",
+    "test:alpha": "node scripts/test-alpha-features.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
